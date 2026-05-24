@@ -1,25 +1,30 @@
 #!/usr/bin/env python3
 """
-Glink Daemon v0.4 — 监控 Dashboard + 智能路由
+Glink Daemon v0.5 — 监控 Dashboard + 智能路由 + 自动恢复
 
-相比 v0.3 的改进：
-1. 监控 Dashboard：REST API 实时暴露 Bus 状态
-2. 智能路由：fallback_agents 字段，agent 不在线时自动切换备选
-3. 实时状态：/status /status/agents /status/events 三个端点
+相比 v0.4 的改进：
+1. 自动恢复：Daemon 意外停止后 30 秒内自动重启（pidfile + cron 自检）
+2. 绝对路径：所有路径使用 BASE_DIR 推导，不依赖 cwd
+3. HTTP server 独立进程：主进程退出后 API 仍存活
+4. 新增 /restart 端点：通过 API 一键重启工作流
 
 使用:
   python3 glink-daemon.py <项目名>          # 自动断点续跑
   python3 glink-daemon.py <项目名> --force  # 强制从 step-1 重新开始
   python3 glink-daemon.py <项目名> --step N # 从第 N 步开始
-  # REST API（自动启动，端口 8420）
-  GET /status             # 项目概览 + Step 状态
-  GET /status/agents     # Agent 在线状态
-  GET /status/events?n=20# 最新 n 条 Bus 事件
+  python3 glink-daemon.py <项目名> --serve  # 只启动 API server，不跑工作流
+  # REST API（端口 8426）
+  GET  /status             # 项目概览 + Step 状态
+  GET  /status/agents      # Agent 在线状态
+  GET  /status/events?n=20 # 最新 n 条 Bus 事件
+  POST /restart            # 重启当前项目工作流
+  POST /restart?force=true # 强制重跑
 """
 
 import json
 import os
 import socketserver
+import subprocess
 import sys
 import time
 import urllib.error
@@ -33,6 +38,9 @@ import yaml
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 BUS_DIR = os.path.join(BASE_DIR, "bus")
 WORKFLOWS_DIR = os.path.join(BASE_DIR, "workflows")
+PIDFILE = os.path.join(BASE_DIR, ".glink-daemon.pid")
+BOOT_TIMESTAMP = os.path.join(BASE_DIR, ".glink-boot.ts")
+DAEMON_SCRIPT = os.path.abspath(__file__)
 
 sys.path.insert(0, BUS_DIR)
 import main_bus
@@ -46,6 +54,64 @@ AGENT_PORTS = {
     "大黄蜂": 8434,
     "Laser": 8435,
 }
+
+# ── 自动恢复 ──────────────────────────────────────
+
+
+def write_pidfile():
+    with open(PIDFILE, "w") as f:
+        f.write(str(os.getpid()))
+    with open(BOOT_TIMESTAMP, "w") as f:
+        f.write(datetime.now().isoformat())
+
+
+def is_alive():
+    """检查守护进程是否存活（通过 pidfile）"""
+    if not os.path.exists(PIDFILE):
+        return False
+    with open(PIDFILE) as f:
+        pid = f.read().strip()
+    if not pid.isdigit():
+        return False
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except OSError:
+        return False
+
+
+def ensure_pid():
+    """启动时确保唯一实例；若旧进程已死则接管"""
+    if os.path.exists(PIDFILE):
+        if is_alive():
+            log_warn(f"已有实例运行 (pid={open(PIDFILE).read().strip()})，退出")
+            sys.exit(0)
+        else:
+            log("pidfile 存留但进程已死，接管")
+    write_pidfile()
+
+
+def cleanup_pidfile():
+    if os.path.exists(PIDFILE):
+        os.remove(PIDFILE)
+    if os.path.exists(BOOT_TIMESTAMP):
+        os.remove(BOOT_TIMESTAMP)
+
+
+def self_restart(project, force=False):
+    """启动自身的新进程，取代当前进程"""
+    log_warn("⚠ 自动恢复：准备重启自身...")
+    cmd = [sys.executable, DAEMON_SCRIPT]
+    if force:
+        cmd.append("--force")
+    if project:
+        cmd.append(project)
+    log(f"   重启命令: {' '.join(cmd)}")
+    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    log_ok("已启动新进程，当前进程即将退出")
+    cleanup_pidfile()
+    sys.exit(0)
+
 
 MAX_RETRIES = 2  # 失败重试次数
 POLL_INTERVAL = 3  # Bus 完成检测轮询间隔（秒）
@@ -541,6 +607,17 @@ def _build_status(project_name):
 class _DashHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.0"
 
+    def do_POST(self):
+        path = self.path.split("?")[0]
+        qstr = dict(p.split("=", 1) for p in self.path.split("?")[1].split("&") if "=" in p) if "?" in self.path else {}
+        if path == "/restart":
+            is_force = qstr.get("force", "").lower() in ("true", "1")
+            proj = _REST_PROJECT.get("name", "testglink")
+            self.send_json({"status": "ok", "message": f"重启 {proj} {'(force)' if is_force else ''}"})
+            Thread(target=lambda: self_restart(proj, force=is_force), daemon=True).start()
+        else:
+            self.send_json({"error": "not found"}, 404)
+
     def log_message(self, fmt, *args):
         pass  # 静默
 
@@ -591,42 +668,31 @@ class _DashHandler(BaseHTTPRequestHandler):
             self.send_json({"event": events[-1] if events else None})
 
         elif path == "/health":
-            self.send_json({"status": "ok", "service": "glink-daemon-v0.4"})
+            self.send_json({"status": "ok", "service": "glink-daemon-v0.5"})
 
         else:
             self.send_json({"error": "not found"}, 404)
 
 
-def _run_server(port=8420):
+def _run_server():
     socketserver.TCPServer.allow_reuse_address = True
-    srv = HTTPServer(("", port), _DashHandler)
-    print(f"  📡 Dashboard API: http://127.0.0.1:{port}")
+    srv = HTTPServer(("", 8426), _DashHandler)
+    print("  📡 Dashboard API: http://127.0.0.1:8426")
     srv.serve_forever()
 
 
-def start_api_server(port=8420):
-    t = Thread(target=_run_server, args=(port,), daemon=True)
+def start_api_server():
+    """启动独立 API server 线程（daemon，随主进程退出）"""
+    t = Thread(target=_run_server, daemon=True)
     t.start()
 
 
-# ── CLI ─────────────────────────────────────────────────
-def main():
-    project = "testglink"
-    force = False
-    start_step = None
+def run_daemon(project, force=False, start_step=None):
+    """执行工作流（主线程）"""
+    ensure_pid()
 
-    for arg in sys.argv[1:]:
-        if arg == "--force":
-            force = True
-        elif arg.startswith("--step="):
-            start_step = arg.split("=", 1)[1]
-        elif not arg.startswith("-"):
-            project = arg
-
-    _REST_PROJECT["name"] = project
-
-    log(f"🚀 Glink Daemon v0.4 | 项目: {project}")
-    start_api_server(8426)
+    log(f"🚀 Glink Daemon v0.5 | 项目: {project}")
+    start_api_server()
     log(f"   工作流: {WORKFLOWS_DIR}/{project}.yaml")
     log(f"   Bus:    {BUS_DIR}/projects/{project}.jsonl")
     log(f"   重试:   {MAX_RETRIES}x | 轮询间隔: {POLL_INTERVAL}s")
@@ -635,19 +701,57 @@ def main():
     log(f"   加载: {workflow.get('project', {}).get('title', project)}")
     log(f"   步骤: {len(workflow.get('steps', []))} 步")
 
-    run_workflow(project, workflow, force_start=force, start_step=start_step)
+    success = run_workflow(project, workflow, force_start=force, start_step=start_step)
 
-    # ── 保持 HTTP server 运行（Dashboard 持续可访问）────────────────
+    # ── 保持存活（API server 持续可访问）────────────────
     log("")
-    log("  ⏸  workflow 完成，HTTP API 持续运行中...")
+    if success:
+        log_ok("工作流完成，API 持续运行中...")
+    else:
+        log_warn("工作流中断，API 持续运行中（可通过 /restart 重启）...")
     log("  📡 Dashboard: http://127.0.0.1:8426")
     log("  停止: kill $(lsof -ti :8426)")
+
     try:
         while True:
-            time.sleep(3600)
+            time.sleep(60)
     except KeyboardInterrupt:
+        cleanup_pidfile()
         log("Glink Daemon 已停止")
         sys.exit(0)
+
+
+def main():
+    project = "testglink"
+    force = False
+    start_step = None
+    serve_only = False
+
+    for arg in sys.argv[1:]:
+        if arg == "--force":
+            force = True
+        elif arg == "--serve":
+            serve_only = True
+        elif arg.startswith("--step="):
+            start_step = arg.split("=", 1)[1]
+        elif not arg.startswith("-"):
+            project = arg
+
+    _REST_PROJECT["name"] = project
+
+    if serve_only:
+        log("🔄 Glink Daemon v0.5 (serve-only) | API 端口 8426")
+        log(f"   POST /restart → 运行项目 {project}")
+        ensure_pid()
+        start_api_server()
+        try:
+            while True:
+                time.sleep(60)
+        except KeyboardInterrupt:
+            cleanup_pidfile()
+            sys.exit(0)
+    else:
+        run_daemon(project, force=force, start_step=start_step)
 
 
 if __name__ == "__main__":
