@@ -269,7 +269,23 @@ python3 glink-daemon.py <项目名>           # 自动断点续跑
 python3 glink-daemon.py <项目名> --force   # 从 step-1 重跑
 python3 glink-daemon.py <项目名> --step N  # 从第 N 步开始
 python3 glink-daemon.py <项目名> --serve   # 只启动 API，不跑工作流
+
+#### 工作流排队（v1.2 规划）
+
+当前 Glink 一次只处理一个工作流。排队设计已在 roadmap：
+
+```json
+// glink-config.yaml 可配置，
+// POST /queue/add { project: "foo" }
+// GET  /queue/status
+// POST /queue/cancel
+// 后台线程：完成当前工作流后自动调度队列中下一个
 ```
+
+队列的核心约束：
+- Bus 是单文件 JSONL（fcntl 文件锁），不支持并发写入
+- 多工作流同时跑 → 不同 bus 文件 + 不同端口实例
+- 同实例队列 → 追加到 `queue.json`，串行轮转
 
 ---
 
@@ -373,26 +389,88 @@ Glink 通过自带的守护机制确保稳定性：
 └──────────────────────────────────────┘
 ```
 
-### 断点续跑
+### 深度错误恢复（P2 深度修复）
 
-每一步完成后，Glink 写入 `checkpoint.json`：
+除基础 pidfile 自检外，Glink 提供 step 级别的错误恢复链：
 
-```json
-{
-  "project": "sandbox-builder",
-  "step_index": 5,
-  "title": "游戏 UI",
-  "status": "completed"
-}
+**检测层**：
+- 每步写入 `checkpoint.json`（tmp + rename 原子写入，fcntl 文件锁）
+- `find_resume_point()` 从 Bus 事件回溯已完成的 step
+- 不依赖 LLM 状态，纯事件驱动恢复
+
+**恢复层**：
+```python
+def self_restart(project, force=False):
+    if not force:
+        ck = load_checkpoint(project)           # 读 checkpoint
+        if ck.step_index >= 0:
+            resume = ck.step_index + 1           # 续跑下一步
+    Popen([DAEMON_SCRIPT, f"--step={resume}"])  # 新进程接力
 ```
 
-重启后自动从 step_index+1 继续。
+**兜底层**（容错链）：
+1. **pidfile 快速自检**（亚秒级）→ 发现挂掉 →
+2. **healthcheck 脚本**每 3 分钟 → 中断超过 30 秒告警 →
+3. **checkpoint 恢复**（setp 级续跑）→
+4. **飞书告警**（配置 `GLINK_ALERT_WEBHOOK` 后红色卡片推送到群）
 
-### 安全防护
+如果 `self_restart` 本身失败（脚本路径错误、Python 不可用），不静默退出，而是记日志保持进程存活等待人工介入。
 
-- 项目名白名单（仅允许 `[\w\-]`，防 path traversal）
-- base64 sanitize 所有文件路径
-- 输入文件不存在时记录警告但不崩溃（可选步骤跳过）
+### 排队长队与序列化
+
+Glink 当前采用**严格串行**模型：同一 daemon 进程一次只能跑一个工作流。多个项目并存时：
+
+```python
+# daemon 启动时不自动执行，仅启动 API server
+python3 glink-daemon.py my-project --serve-only
+# 通过 POST /restart?force=true 触发执行
+# 或指定默认项目在 YAML 中：
+# project:
+#   default: sandbox-builder
+```
+
+**P3 规划**：
+- 工作流排队（等待队列，前一个完成后自动启动下一个）
+- 项目优先级标记（YAML 中 `priority: P0/P1/P2`）
+- 多 daemon 实例（不同项目跑不同端口）
+
+当前限制的原因：Main Bus 是单文件 JSONL，无并发写入保护层。并行安排在 v1.2+。
+
+### 并发与并行（P2 待实现蓝图）
+
+当前所有步骤严格串行。并行计划分两阶段：
+
+**Phase 1 — 独立步骤并行**（v1.x）
+```yaml
+steps:
+  - executor: 重锤
+    title: 后端
+    depends_on: []        # 无依赖 → 可并行
+    parallel_group: 1     # 同一 group 的步骤同时执行
+  - executor: 绘墨
+    title: 前端    
+    depends_on: []        # 无依赖 → 可并行
+    parallel_group: 1
+  - executor: 大黄蜂
+    title: 集成测试
+    depends_on: [step-1, step-2]  # 等待两组完成
+```
+
+**Phase 2 — 子工作流嵌套**（v1.3）
+```yaml
+steps:
+  - executor: glink      # 特殊 executor
+    sub_workflow: backend-workflow.yaml
+  - executor: glink
+    sub_workflow: frontend-workflow.yaml
+```
+
+并行执行的关键前提：
+- Main Bus 写入锁（已基础支持 `fcntl.flock`）
+- event 的 `type` + `stage` 双字段查询（已支持）
+- Agent 调用需独立的 timeout 线程（已通过 `threading.Thread` 实现）
+
+当前 **max_concurrent_steps: 1** 配置已预留，扩展时只需改配置值。
 
 ---
 
@@ -462,10 +540,14 @@ python3 glink-daemon.py my-project
 | v0.6 | 三大 Bug 修复：字段不一致、状态覆盖语义、并发无锁 + 安全加固 | ✅ |
 | v0.7 | 抽取公用代码至 agent_client，消除重复 | ✅ |
 | v1.0 | input_file 强制注入 + 输出路径控制（本白皮书发布） | ✅ |
-| v1.1 | Dashboard UI 增强（实时进度可视化） | 🔜 |
-| v1.2 | 条件分支（if_else 步骤） | 🔜 |
-| v1.3 | 子工作流（嵌套编排） | 🔜 |
-| v1.4 | 历史项目可视化回放 | 🔜 |
+| v1.1 | Dashboard UI 增强（实时进度可视化 + 指挥官看板） | ✅ |
+| v1.2 | 工作流排队（queue.json + 顺序调度） | 🔜 |
+| v1.3 | 条件分支（if_else 步骤 + 根据上一步结果路由） | 🔜 |
+| v1.4 | 子工作流（嵌套编排，不同项目可嵌套） | 🔜 |
+| v1.5 | 独立步骤并行执行（parallel_group + depends_on） | 🔜 |
+| v1.6 | YAML 正式配置化 + daemon/config.py 全局配置加载 | ✅ |
+| v1.7 | 深度错误恢复（原子 checkpoint + 多级容错链 + 重试 try/except） | ✅ |
+| v1.8 | 历史项目可视化回放 | 🔜 |
 
 ---
 
