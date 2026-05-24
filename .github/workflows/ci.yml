@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff mypy
+
+      - name: Lint (ruff)
+        run: ruff check daemon/ bus/ reporter/ glink-daemon.py glink.py
+
+      - name: Format check (ruff)
+        run: ruff format --check daemon/ bus/ reporter/ glink-daemon.py glink.py
+
+      - name: Type check (mypy)
+        run: mypy --ignore-missing-imports daemon/ bus/ reporter/ glink-daemon.py glink.py
+
+      - name: Compile check
+        run: python -c "
+import sys
+import py_compile
+files = []
+import glob
+for p in ['daemon/*.py', 'bus/*.py', 'reporter/*.py', 'glink-daemon.py', 'glink.py']:
+    files.extend(glob.glob(p))
+for f in files:
+    py_compile.compile(f, doraise=True)
+    print(f'  ✓ {f}')
+print(f'All {len(files)} files compile OK')
+"
