@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.log
+.env
+venv/
+.sessions/
+*.bak
+*.bak.*
+glink-log/
+data/

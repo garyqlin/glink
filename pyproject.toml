@@ -1,0 +1,22 @@
+[project]
+name = "glink"
+version = "0.1.0"
+description = "多 Agent 协作编排引擎 — 让 AI 战甲一起干活"
+authors = [{ name = "Gary Lin" }]
+license = { text = "MIT" }
+readme = "README.md"
+requires-python = ">=3.11"
+keywords = ["agent", "workflow", "orchestration", "ai", "automation"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
+ignore = ["E501", "SIM115"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
