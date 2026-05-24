@@ -21,8 +21,10 @@ Glink Daemon v0.5 — 监控 Dashboard + 智能路由 + 自动恢复
   POST /restart?force=true # 强制重跑
 """
 
+import fcntl
 import json
 import os
+import re
 import socketserver
 import subprocess
 import sys
@@ -58,17 +60,56 @@ AGENT_PORTS = {
     "forge": 8436,
 }
 
+# ── 运行时常量 ──────────────────────────────────────────
+MAX_RETRIES = 2  # 失败重试次数
+POLL_INTERVAL = 3  # Bus 完成检测轮询间隔（秒）
+POLL_MAX_WAIT = 180  # 单步最大等待时间（秒）
+CHECKPOINT_FILE = ".checkpoint.json"
+
+# ── 项目名白名单（防 path traversal）────────────────────
+_PROJECT_NAME_RE = re.compile(r"[^\w\-]")
+
+
+def _sanitize_project_name(project_name: str) -> str:
+    """过滤项目名，仅保留字母/数字/下划线/连字符"""
+    return _PROJECT_NAME_RE.sub("", project_name or "")
+
+
+# ── 日志 ─────────────────────────────────────────────────
+def log(msg: str, tag: str = "  ") -> None:
+    ts = datetime.now().strftime("%H:%M:%S")
+    print(f"[{ts}]{tag} {msg}")
+
+
+def log_step(msg: str) -> None:
+    log(msg, "━━ ")
+
+
+def log_ok(msg: str) -> None:
+    log(msg, " ✅")
+
+
+def log_err(msg: str) -> None:
+    log(msg, " ❌")
+
+
+def log_warn(msg: str) -> None:
+    log(msg, " ⚠️ ")
+
+
+def log_retry(msg: str) -> None:
+    log(msg, " ↻ ")
+
+
 # ── 自动恢复 ──────────────────────────────────────
-
-
-def write_pidfile():
+def write_pidfile() -> None:
     with open(PIDFILE, "w") as f:
         f.write(str(os.getpid()))
     with open(BOOT_TIMESTAMP, "w") as f:
         f.write(datetime.now().isoformat())
 
 
-def is_alive():
+def is_alive() -> bool:
     """检查守护进程是否存活（通过 pidfile）"""
     if not os.path.exists(PIDFILE):
         return False
@@ -83,25 +124,27 @@ def is_alive():
         return False
 
 
-def ensure_pid():
+def ensure_pid() -> None:
     """启动时确保唯一实例；若旧进程已死则接管"""
     if os.path.exists(PIDFILE):
         if is_alive():
-            log_warn(f"已有实例运行 (pid={open(PIDFILE).read().strip()})，退出")
+            with open(PIDFILE) as f:
+                old_pid = f.read().strip()
+            log_warn(f"已有实例运行 (pid={old_pid})，退出")
             sys.exit(0)
         else:
             log("pidfile 存留但进程已死，接管")
     write_pidfile()
 
 
-def cleanup_pidfile():
+def cleanup_pidfile() -> None:
     if os.path.exists(PIDFILE):
         os.remove(PIDFILE)
     if os.path.exists(BOOT_TIMESTAMP):
         os.remove(BOOT_TIMESTAMP)
 
 
-def self_restart(project, force=False):
+def self_restart(project: str, force: bool = False) -> None:
     """启动自身的新进程，取代当前进程
     自动从 checkpoint 恢复断点
     """
@@ -110,7 +153,8 @@ def self_restart(project, force=False):
     # 读取 checkpoint，找到断点
     resume_step = None
     if not force:
-        ck_path = os.path.join(BUS_DIR, "projects", f"{project}_{CHECKPOINT_FILE}")
+        safe_project = _sanitize_project_name(project)
+        ck_path = os.path.join(BUS_DIR, "projects", f"{safe_project}_{CHECKPOINT_FILE}")
         if os.path.exists(ck_path):
             with open(ck_path) as f:
                 ck = json.load(f)
@@ -137,72 +181,59 @@ def self_restart(project, force=False):
     if project:
         cmd.append(project)
     log(f"   重启命令: {' '.join(cmd)}")
-    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    subprocess.Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
     log_ok("已启动新进程，当前进程即将退出")
     cleanup_pidfile()
     sys.exit(0)
 
 
-MAX_RETRIES = 2  # 失败重试次数
-POLL_INTERVAL = 3  # Bus 完成检测轮询间隔（秒）
-POLL_MAX_WAIT = 180  # 单步最大等待时间（秒）
-CHECKPOINT_FILE = ".checkpoint.json"
-
-
-# ── 日志 ─────────────────────────────────────────────────
-def log(msg, tag="  "):
-    ts = datetime.now().strftime("%H:%M:%S")
-    print(f"[{ts}]{tag} {msg}")
-
-
-def log_step(msg):
-    log(msg, "━━ ")
-
-
-def log_ok(msg):
-    log(msg, " ✅")
-
-
-def log_err(msg):
-    log(msg, " ❌")
-
-
-def log_warn(msg):
-    log(msg, " ⚠️ ")
-
-
-def log_retry(msg):
-    log(msg, " ↻ ")
-
-
 # ── 工作流加载 ───────────────────────────────────────────
-def load_workflow(project_name):
+def load_workflow(project_name: str):
+    safe_name = _sanitize_project_name(project_name)
     for path in [
-        os.path.join(WORKFLOWS_DIR, f"{project_name}.yaml"),
-        os.path.join(BUS_DIR, "projects", f"{project_name}.yaml"),
+        os.path.join(WORKFLOWS_DIR, f"{safe_name}.yaml"),
+        os.path.join(BUS_DIR, "projects", f"{safe_name}.yaml"),
     ]:
         if os.path.exists(path):
             with open(path, encoding="utf-8") as f:
                 wf = yaml.safe_load(f)
             log(f"加载工作流: {path}")
             return wf
-    log_err(f"找不到工作流: {project_name}")
+    log_err(f"找不到工作流: {safe_name}")
     sys.exit(1)
 
 
 # ── Checkpoint 持久化 ────────────────────────────────────
-def load_checkpoint(project_name):
-    """读取 checkpoint，返回 last_completed_step_index（0-based），-1 表示无记录"""
-    path = os.path.join(BUS_DIR, "projects", f"{project_name}_{CHECKPOINT_FILE}")
+def load_checkpoint(project_name: str):
+    """读取 checkpoint，返回 (step_index, ck_dict)；-1 表示无记录
+
+    字段与 save_checkpoint 保持一致：统一使用 step_index。
+    """
+    safe_name = _sanitize_project_name(project_name)
+    path = os.path.join(BUS_DIR, "projects", f"{safe_name}_{CHECKPOINT_FILE}")
     if os.path.exists(path):
         with open(path) as f:
             ck = json.load(f)
-        return ck.get("last_completed_step_index", -1), ck
+        return ck.get("step_index", -1), ck
     return -1, None
 
 
-def save_checkpoint(project_name, step_index, step_title, status="running"):
-    path = os.path.join(BUS_DIR, "projects", f"{project_name}_{CHECKPOINT_FILE}")
+def save_checkpoint(
+    project_name: str, step_index: int, step_title: str, status: str = "running"
+):
+    """原子地写入 checkpoint。
+
+    用 fcntl.LOCK_EX 排他锁串行化并发写入，避免多线程 / 多进程下的脏写。
+    """
+    safe_name = _sanitize_project_name(project_name)
+    path = os.path.join(BUS_DIR, "projects", f"{safe_name}_{CHECKPOINT_FILE}")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
     ck = {
         "project": project_name,
         "step_index": step_index,
@@ -210,13 +241,24 @@ def save_checkpoint(project_name, step_index, step_title, status="running"):
         "status": status,
         "ts": datetime.now().isoformat(),
     }
-    with open(path, "w") as f:
-        json.dump(ck, f, ensure_ascii=False, indent=2)
+
+    # 用 r+/w 都不行（w 会立刻 truncate 失去锁竞争窗口），改用 a+ 锁定 → truncate → 写入
+    with open(path, "a+", encoding="utf-8") as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            f.seek(0)
+            f.truncate()
+            json.dump(ck, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
     return ck
 
 
-def clear_checkpoint(project_name):
-    path = os.path.join(BUS_DIR, "projects", f"{project_name}_{CHECKPOINT_FILE}")
+def clear_checkpoint(project_name: str) -> None:
+    safe_name = _sanitize_project_name(project_name)
+    path = os.path.join(BUS_DIR, "projects", f"{safe_name}_{CHECKPOINT_FILE}")
     if os.path.exists(path):
         os.remove(path)
 
@@ -240,8 +282,8 @@ def find_resume_point(project_name, steps, _force_start=False):
             continue
         if etype == "task.completed":
             step_status[stage] = "completed"
-        elif etype == "task.failed":
-            # 不覆盖 completed
+        elif etype == "task.failed" and step_status.get(stage) != "completed":
+            # 不覆盖 completed：completed 一旦确立就是终态
             step_status[stage] = "failed"
         elif etype == "task.started" and stage not in step_status:
             step_status[stage] = "started"
@@ -305,13 +347,18 @@ def call_agent(agent, task_desc, timeout=600):
     port = AGENT_PORTS.get(agent, 8420)
     url = f"http://127.0.0.1:{port}/ask"
     payload = json.dumps({"message": task_desc, "session": True}).encode()
-    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(
+        url, data=payload, headers={"Content-Type": "application/json"}
+    )
 
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             body = resp.read().decode()
             try:
-                return {"status": "ok", "output": json.loads(body).get("reply", body[:500])}
+                return {
+                    "status": "ok",
+                    "output": json.loads(body).get("reply", body[:500]),
+                }
             except json.JSONDecodeError:
                 return {"status": "ok", "output": body[:500]}
     except urllib.error.HTTPError as e:
@@ -322,7 +369,13 @@ def call_agent(agent, task_desc, timeout=600):
 
 
 # ── 依赖等待 ─────────────────────────────────────────────
-def wait_for_deps(project_name, depends_on, _stage, poll_interval=POLL_INTERVAL, max_wait=POLL_MAX_WAIT):
+def wait_for_deps(
+    project_name,
+    depends_on,
+    _stage,
+    poll_interval=POLL_INTERVAL,
+    max_wait=POLL_MAX_WAIT,
+):
     """等待前置依赖的 task.completed 事件"""
     if not depends_on:
         return True
@@ -332,7 +385,9 @@ def wait_for_deps(project_name, depends_on, _stage, poll_interval=POLL_INTERVAL,
 
     while time.time() - start < max_wait:
         events = main_bus.read(project_name, limit=200)
-        completed_stages = {e.get("stage") for e in events if e["type"] == "task.completed"}
+        completed_stages = {
+            e.get("stage") for e in events if e["type"] == "task.completed"
+        }
         if all(ds in completed_stages for ds in dep_stages):
             log(f"  依赖满足: {dep_stages}")
             return True
@@ -518,7 +573,9 @@ def run_workflow(project_name, workflow, force_start=False, start_step=None):
         step = steps[i]
         ok = execute_step(project_name, step, i, total_steps)
         if not ok:
-            save_checkpoint(project_name, i, step.get("title", f"step-{i + 1}"), "failed")
+            save_checkpoint(
+                project_name, i, step.get("title", f"step-{i + 1}"), "failed"
+            )
             success = False
             break
         time.sleep(1)
@@ -539,10 +596,17 @@ def run_workflow(project_name, workflow, force_start=False, start_step=None):
         log("")
         log("=" * 50)
         log_ok(f"[{project_name}] ✅ 全流程完成！{total_steps}/{total_steps} 步")
-        log(f"  Bus: {s['total_events']} 事件 | Agent: {', '.join(s['agents_involved'])}")
+        log(
+            f"  Bus: {s['total_events']} 事件 | Agent: {', '.join(s['agents_involved'])}"
+        )
         log("=" * 50)
     else:
-        save_checkpoint(project_name, start_index, steps[start_index].get("title", ""), "interrupted")
+        save_checkpoint(
+            project_name,
+            start_index,
+            steps[start_index].get("title", ""),
+            "interrupted",
+        )
         s = main_bus.status(project_name)
         log_err(f"流程中断于 Step-{start_index + 1}，checkpoint 已保存")
 
@@ -696,12 +760,25 @@ class _DashHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?")[0]
-        qstr = dict(p.split("=", 1) for p in self.path.split("?")[1].split("&") if "=" in p) if "?" in self.path else {}
+        qstr = (
+            dict(
+                p.split("=", 1) for p in self.path.split("?")[1].split("&") if "=" in p
+            )
+            if "?" in self.path
+            else {}
+        )
         if path == "/restart":
             is_force = qstr.get("force", "").lower() in ("true", "1")
             proj = _REST_PROJECT.get("name", "testglink")
-            self.send_json({"status": "ok", "message": f"重启 {proj} {'(force)' if is_force else ''}"})
-            Thread(target=lambda: self_restart(proj, force=is_force), daemon=True).start()
+            self.send_json(
+                {
+                    "status": "ok",
+                    "message": f"重启 {proj} {'(force)' if is_force else ''}",
+                }
+            )
+            Thread(
+                target=lambda: self_restart(proj, force=is_force), daemon=True
+            ).start()
         else:
             self.send_json({"error": "not found"}, 404)
 
@@ -719,7 +796,13 @@ class _DashHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?")[0]
-        qstr = dict(p.split("=", 1) for p in self.path.split("?")[1].split("&") if "=" in p) if "?" in self.path else {}
+        qstr = (
+            dict(
+                p.split("=", 1) for p in self.path.split("?")[1].split("&") if "=" in p
+            )
+            if "?" in self.path
+            else {}
+        )
         proj = _REST_PROJECT.get("name", "testglink")
 
         if path == "/status":
@@ -738,7 +821,12 @@ class _DashHandler(BaseHTTPRequestHandler):
             ev_out = []
             for e in events[-n:]:
                 t = e["type"]
-                s_map = {"task.completed": "ok", "task.failed": "fail", "task.started": "run", "task.skipped": "skip"}
+                s_map = {
+                    "task.completed": "ok",
+                    "task.failed": "fail",
+                    "task.started": "run",
+                    "task.skipped": "skip",
+                }
                 ev_out.append(
                     {
                         "ts": e.get("ts", ""),
@@ -820,7 +908,12 @@ def main():
         elif arg == "--serve":
             serve_only = True
         elif arg.startswith("--step="):
-            start_step = arg.split("=", 1)[1]
+            raw = arg.split("=", 1)[1]
+            try:
+                start_step = int(raw)
+            except ValueError:
+                log_err(f"--step 参数必须是整数，收到: {raw!r}")
+                sys.exit(2)
         elif not arg.startswith("-"):
             project = arg
 

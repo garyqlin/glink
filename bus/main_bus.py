@@ -14,23 +14,34 @@ Main Bus — 共享项目时间线
   - project.update: 项目状态更新
 """
 
+import fcntl
 import json
 import os
+import re
 import sys
 from datetime import datetime
 
 BUS_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# 项目名白名单：仅允许字母、数字、下划线、连字符（防 path traversal）
+_PROJECT_NAME_RE = re.compile(r"[^\w\-]")
 
-def bus_path(project_name):
+
+def _sanitize_project_name(project_name: str) -> str:
+    """过滤项目名，防止 path traversal（仅保留 [\\w\\-]）"""
+    return _PROJECT_NAME_RE.sub("", project_name or "")
+
+
+def bus_path(project_name: str) -> str:
     """获取项目总线文件路径"""
+    safe_name = _sanitize_project_name(project_name)
     projects_dir = os.path.join(BUS_DIR, "projects")
     os.makedirs(projects_dir, exist_ok=True)
-    return os.path.join(projects_dir, f"{project_name}.jsonl")
+    return os.path.join(projects_dir, f"{safe_name}.jsonl")
 
 
-def write(project_name, event_type, agent, data, stage=""):
-    """写入一条事件到 Main Bus"""
+def write(project_name: str, event_type: str, agent: str, data, stage: str = ""):
+    """写入一条事件到 Main Bus（带文件锁，并发安全）"""
     path = bus_path(project_name)
     entry = {
         "ts": datetime.now().isoformat(),
@@ -39,12 +50,22 @@ def write(project_name, event_type, agent, data, stage=""):
         "data": data,
         "stage": stage,
     }
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                f.flush()
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    except IOError as e:
+        # 写入失败不抛出，记录到 stderr，避免拖垮调用方
+        sys.stderr.write(f"[main_bus.write] IOError on {path}: {e}\n")
+        return None
     return entry
 
 
-def read(project_name, limit=20, since_type=None):
+def read(project_name: str, limit: int = 20, since_type: str = None):
     """读取 Main Bus 最近的事件"""
     path = bus_path(project_name)
     if not os.path.exists(path):
@@ -66,7 +87,7 @@ def read(project_name, limit=20, since_type=None):
     return entries[-limit:]
 
 
-def latest(project_name, event_type=None, agent=None):
+def latest(project_name: str, event_type: str = None, agent: str = None):
     """获取最新的一条事件"""
     entries = read(project_name, limit=100)
     for e in reversed(entries):
@@ -78,7 +99,7 @@ def latest(project_name, event_type=None, agent=None):
     return None
 
 
-def status(project_name):
+def status(project_name: str) -> dict:
     """获取项目当前状态总结"""
     entries = read(project_name, limit=1000)
 
@@ -99,7 +120,7 @@ def status(project_name):
     }
 
 
-def cli():
+def cli() -> None:
     """命令行入口"""
     if len(sys.argv) < 2:
         print("用法: python3 main-bus.py <命令> [参数...]")
