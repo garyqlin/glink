@@ -29,9 +29,31 @@ if [ -f "$PIDFILE" ]; then
     rm -f "$PIDFILE"
 fi
 
-# 读取上次的项目名（从 pidfile 或日志最后出现的项目名）
+# 读取上次的项目名（从日志最后出现的项目名）
 PROJECT=$(grep -oP '(?<=项目: )\w+' "$LOG" 2>/dev/null | tail -1)
 PROJECT="${PROJECT:-testglink}"
+
+# 告警：通知主人
+if [ -n "${GLINK_ALERT_WEBHOOK:-}" ]; then
+curl -s -m 5 -X POST -H "Content-Type: application/json" \
+  -d "$(cat <<EOF
+{
+  "msg_type": "interactive",
+  "card": {
+    "header": {
+      "title": {"tag": "plain_text", "content": "⚠️ Glink Daemon 已离线，正在自动恢复"},
+      "template": "red"
+    },
+    "elements": [
+      {"tag": "markdown", "content": "**项目**: $PROJECT\n**主机**: $(hostname)\n**操作**: 自动重启 daemon"},
+      {"tag": "hr"},
+      {"tag": "note", "elements": [{"tag": "plain_text", "content": "Glink Healthcheck | $(date '+%Y-%m-%d %H:%M:%S')"}]}
+    ]
+  }
+}
+EOF
+)" "$GLINK_ALERT_WEBHOOK" >/dev/null 2>&1
+fi
 
 # 启动
 cd "$BASE_DIR" || exit 1

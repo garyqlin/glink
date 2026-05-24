@@ -101,6 +101,10 @@ def cleanup_pidfile():
 def self_restart(project, force=False):
     """启动自身的新进程，取代当前进程"""
     log_warn("⚠ 自动恢复：准备重启自身...")
+    send_alert(
+        "Daemon 自动恢复",
+        f"**项目**: {project}\n**force**: {force}\n**pid**: {os.getpid()}\n**脚本**: {DAEMON_SCRIPT}",
+    )
     cmd = [sys.executable, DAEMON_SCRIPT]
     if force:
         cmd.append("--force")
@@ -523,6 +527,63 @@ def run_workflow(project_name, workflow, force_start=False, start_step=None):
 # REST API Server（Dashboard 用）
 # ══════════════════════════════════════════════════════
 _REST_PROJECT = {"name": "testglink"}  # 全局：当前项目名
+
+# ── 飞书告警 ────────────────────────────────────────────
+FEISHU_ALERT_WEBHOOK = os.environ.get(
+    "GLINK_ALERT_WEBHOOK",
+    "",
+)
+
+
+def send_alert(title, message):
+    """发送飞书告警消息（环境变量 GLINK_ALERT_WEBHOOK）"""
+    if not FEISHU_ALERT_WEBHOOK:
+        log_warn(f"告警未发送（未配置 GLINK_ALERT_WEBHOOK）: {title}")
+        return False
+    payload = json.dumps(
+        {
+            "msg_type": "interactive",
+            "card": {
+                "header": {
+                    "title": {"tag": "plain_text", "content": f"⚠️ Glink: {title}"},
+                    "template": "red",
+                },
+                "elements": [
+                    {"tag": "markdown", "content": message},
+                    {
+                        "tag": "hr",
+                    },
+                    {
+                        "tag": "note",
+                        "elements": [
+                            {
+                                "tag": "plain_text",
+                                "content": f"Glink Daemon v0.5 | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                            }
+                        ],
+                    },
+                ],
+            },
+        }
+    ).encode()
+    req = urllib.request.Request(
+        FEISHU_ALERT_WEBHOOK,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            body = resp.read().decode()
+            ok = json.loads(body).get("StatusCode", 1) == 0
+            if ok:
+                log("📬 告警已发送")
+            else:
+                log_warn(f"告警发送失败: {body[:200]}")
+            return ok
+    except Exception as e:
+        log_warn(f"告警发送异常: {e}")
+        return False
 
 
 def _build_status(project_name):
