@@ -58,7 +58,7 @@ def write(project_name: str, event_type: str, agent: str, data, stage: str = "")
                 f.flush()
             finally:
                 fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-    except IOError as e:
+    except OSError as e:
         # 写入失败不抛出，记录到 stderr，避免拖垮调用方
         sys.stderr.write(f"[main_bus.write] IOError on {path}: {e}\n")
         return None
@@ -70,6 +70,10 @@ def read(project_name: str, limit: int = 20, since_type: str = None):
     path = bus_path(project_name)
     if not os.path.exists(path):
         return []
+
+    # BUG-02: 负数或零 n 参数校验（2026-05-25 Forge 发现）
+    if limit <= 0:
+        limit = 20
 
     entries = []
     with open(path, encoding="utf-8") as f:

@@ -92,8 +92,28 @@ def log_retry(msg: str) -> None:
 
 # ── 自动恢复 ──────────────────────────────────────
 def write_pidfile() -> None:
-    with open(PIDFILE, "w") as f:
-        f.write(str(os.getpid()))
+    """原子写入 pidfile（使用 O_CREAT | O_EXCL 防止竞态）"""
+    pid = str(os.getpid())
+    try:
+        # 尝试独占创建 — 如果文件已存在则抛 FileExistsError
+        fd = os.open(PIDFILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        with os.fdopen(fd, "w") as f:
+            f.write(pid)
+    except FileExistsError:
+        # 文件存在，检查旧进程是否存活
+        with open(PIDFILE) as f:
+            old_pid = f.read().strip()
+        if old_pid.isdigit():
+            try:
+                os.kill(int(old_pid), 0)
+                log_warn(f"已有实例运行 (pid={old_pid})，退出")
+                sys.exit(0)
+            except OSError:
+                pass  # 旧进程已死，覆盖写入
+        # 旧进程死了，直接覆盖
+        with open(PIDFILE, "w") as f:
+            f.write(pid)
+
     with open(BOOT_TIMESTAMP, "w") as f:
         f.write(datetime.now().isoformat())
 
@@ -114,15 +134,7 @@ def is_alive() -> bool:
 
 
 def ensure_pid() -> None:
-    """启动时确保唯一实例；若旧进程已死则接管"""
-    if os.path.exists(PIDFILE):
-        if is_alive():
-            with open(PIDFILE) as f:
-                old_pid = f.read().strip()
-            log_warn(f"已有实例运行 (pid={old_pid})，退出")
-            sys.exit(0)
-        else:
-            log("pidfile 存留但进程已死，接管")
+    """启动时确保唯一实例；委托给 write_pidfile 处理竞态"""
     write_pidfile()
 
 
@@ -221,17 +233,14 @@ def save_checkpoint(project_name: str, step_index: int, step_title: str, status:
         "ts": datetime.now().isoformat(),
     }
 
-    # 用 r+/w 都不行（w 会立刻 truncate 失去锁竞争窗口），改用 a+ 锁定 → truncate → 写入
-    with open(path, "a+", encoding="utf-8") as f:
+    # 使用临时文件 + rename 保证原子写入，fcntl 文件锁防并发
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
         fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-        try:
-            f.seek(0)
-            f.truncate()
-            json.dump(ck, f, ensure_ascii=False, indent=2)
-            f.flush()
-            os.fsync(f.fileno())
-        finally:
-            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        json.dump(ck, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_path, path)  # 原子替换
     return ck
 
 
@@ -424,7 +433,6 @@ def execute_step(project_name, step, step_index, total_steps, retries=MAX_RETRIE
                     f"```html\n{prev_content}\n```\n"
                 )
                 # 输出文件路径：相对于 projects/ 目录
-                resolved_output = os.path.join(BASE_DIR, "projects", output_file_path) if output_file_path else ""
                 resolved_output = os.path.join(BASE_DIR, "projects", output_file_path) if output_file_path else ""
 
                 # ⚠️ 强制指令：必须读入文件、增量修改、写完整输出
@@ -816,7 +824,13 @@ class _DashHandler(BaseHTTPRequestHandler):
             self.send_json({"agents": agents_out})
 
         elif path == "/status/events":
-            n = int(qstr.get("n", 20))
+            # BUG-01: 非数字 n 参数校验 + BUG-07: 上限保护（2026-05-25 Forge 发现）
+            try:
+                n = int(qstr.get("n", 20))
+            except ValueError:
+                self.send_json({"error": 'query param "n" must be integer'}, 400)
+                return
+            n = min(max(n, 1), 1000)
             events = main_bus.read(proj, limit=n)
             ev_out = []
             for e in events[-n:]:
@@ -951,7 +965,13 @@ class _DashHandler(BaseHTTPRequestHandler):
 
         # ── 情报端点：完整时间线 ──────────────────────
         elif path == "/intel/timeline":
-            limit = int(qstr.get("n", 100))
+            # BUG-01/07: n 参数校验 + 上限（2026-05-25 Forge 发现）
+            try:
+                limit = int(qstr.get("n", 100))
+            except ValueError:
+                self.send_json({"error": 'query param "n" must be integer'}, 400)
+                return
+            limit = min(max(limit, 1), 1000)
             events = main_bus.read(proj, limit=limit)
             timeline = []
             for e in events:

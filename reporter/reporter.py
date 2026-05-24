@@ -7,15 +7,18 @@ Glink Reporter — 渠道无关的 Session 抽象层
   - alert(title)    → 推异常告警
   - summary(steps)  → 推 step 进展摘要
 
-内置实现：
+内置实现（当前）：
   - FeishuReporter  → 飞书卡片/webhook
   - ConsoleReporter → 标准输出（默认 fallback）
   - SilentReporter  → 静默（只写日志，不推任何消息）
-  - ZaguReporter    → 推送到扎古会话
+  - MultiReporter   → 多路聚合
+
+待实现：
+  - ZaguReporter    → 推送到扎古会话（channel-agnostic Session 接口定义后）
 
 配置方式（按优先级）：
   1. glink-config.yaml 的 reporting.channels 列表
-  2. 环境变量 GLINK_REPORTER=feishu|console|silent|zagu
+  2. 环境变量 GLINK_REPORTER=feishu|console|silent
   3. 默认：ConsoleReporter
 """
 
