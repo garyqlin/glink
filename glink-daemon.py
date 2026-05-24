@@ -24,7 +24,6 @@ Glink Daemon v0.5 — 监控 Dashboard + 智能路由 + 自动恢复
 import fcntl
 import json
 import os
-import re
 import socketserver
 import subprocess
 import sys
@@ -35,8 +34,6 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from threading import Thread
 
-import yaml
-
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 BUS_DIR = os.path.join(BASE_DIR, "bus")
 WORKFLOWS_DIR = os.path.join(BASE_DIR, "workflows")
@@ -46,19 +43,10 @@ DAEMON_SCRIPT = os.path.abspath(__file__)
 
 sys.path.insert(0, BUS_DIR)
 import main_bus
-
-# ── Agent 端口映射 ──────────────────────────────────────
-AGENT_PORTS = {
-    "标准版": 8420,
-    "扎古": 8420,
-    "重锤": 8431,
-    "绘墨": 8432,
-    "大黄蜂": 8434,
-    "Laser": 8435,
-    "代码臂": 8436,
-    "Forge": 8436,
-    "forge": 8436,
-}
+from agent_client import AGENT_PORTS  # 共享 Agent 端口映射
+from agent_client import call_agent as _shared_call_agent
+from agent_client import load_workflow as _shared_load_workflow
+from agent_client import _sanitize_project_name as _shared_sanitize
 
 # ── 运行时常量 ──────────────────────────────────────────
 MAX_RETRIES = 2  # 失败重试次数
@@ -66,13 +54,8 @@ POLL_INTERVAL = 3  # Bus 完成检测轮询间隔（秒）
 POLL_MAX_WAIT = 180  # 单步最大等待时间（秒）
 CHECKPOINT_FILE = ".checkpoint.json"
 
-# ── 项目名白名单（防 path traversal）────────────────────
-_PROJECT_NAME_RE = re.compile(r"[^\w\-]")
-
-
-def _sanitize_project_name(project_name: str) -> str:
-    """过滤项目名，仅保留字母/数字/下划线/连字符"""
-    return _PROJECT_NAME_RE.sub("", project_name or "")
+# ── 项目名白名单（共享自 agent_client._sanitize_project_name）
+_sanitize_project_name = _shared_sanitize
 
 
 # ── 日志 ─────────────────────────────────────────────────
@@ -192,20 +175,12 @@ def self_restart(project: str, force: bool = False) -> None:
     sys.exit(0)
 
 
-# ── 工作流加载 ───────────────────────────────────────────
+# ── 工作流加载 (复用共享版，附加 daemon 风格日志) ───────
 def load_workflow(project_name: str):
     safe_name = _sanitize_project_name(project_name)
-    for path in [
-        os.path.join(WORKFLOWS_DIR, f"{safe_name}.yaml"),
-        os.path.join(BUS_DIR, "projects", f"{safe_name}.yaml"),
-    ]:
-        if os.path.exists(path):
-            with open(path, encoding="utf-8") as f:
-                wf = yaml.safe_load(f)
-            log(f"加载工作流: {path}")
-            return wf
-    log_err(f"找不到工作流: {safe_name}")
-    sys.exit(1)
+    wf = _shared_load_workflow(project_name, base_dir=BASE_DIR)
+    log(f"加载工作流: {safe_name}")
+    return wf
 
 
 # ── Checkpoint 持久化 ────────────────────────────────────
@@ -341,31 +316,10 @@ def resolve_agent(agent, fallback_agents=None):
     return agent, port, None  # 主 agent 不在线，但没找到 fallback
 
 
-# ── Agent HTTP 调用 ─────────────────────────────────────
+# ── Agent HTTP 调用（复用共享版，保留原签名）────────────
 def call_agent(agent, task_desc, timeout=600):
-    """HTTP 调用 agent，返回回复文本"""
-    port = AGENT_PORTS.get(agent, 8420)
-    url = f"http://127.0.0.1:{port}/ask"
-    payload = json.dumps({"message": task_desc, "session": True}).encode()
-    req = urllib.request.Request(
-        url, data=payload, headers={"Content-Type": "application/json"}
-    )
-
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = resp.read().decode()
-            try:
-                return {
-                    "status": "ok",
-                    "output": json.loads(body).get("reply", body[:500]),
-                }
-            except json.JSONDecodeError:
-                return {"status": "ok", "output": body[:500]}
-    except urllib.error.HTTPError as e:
-        body = e.read().decode()[:200]
-        return {"status": "failed", "error": f"HTTP {e.code}: {body}"}
-    except Exception as e:
-        return {"status": "failed", "error": str(e)}
+    """HTTP 调用 agent，返回 {status, output|error}"""
+    return _shared_call_agent(agent, task_desc, timeout=timeout)
 
 
 # ── 依赖等待 ─────────────────────────────────────────────
