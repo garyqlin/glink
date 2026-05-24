@@ -405,6 +405,69 @@ def execute_step(project_name, step, step_index, total_steps, retries=MAX_RETRIE
             )
             return False
 
+    # ── 读取 input_file（如有）并拼入任务上下文 ──────
+    enriched_task = task
+    input_file_path = step.get("input_file", "")
+    output_file_path = step.get("output_file", "")
+    if input_file_path:
+        resolved_input = os.path.join(BASE_DIR, "projects", input_file_path)
+        if os.path.isfile(resolved_input):
+            try:
+                with open(resolved_input) as f:
+                    prev_content = f.read()
+                input_summary = (
+                    f"【输入文件】{resolved_input}\n"
+                    f"文件大小: {len(prev_content)} 字符\n"
+                    f"文件内容:\n"
+                    f"```html\n{prev_content}\n```\n"
+                )
+                # 输出文件路径：相对于 projects/ 目录
+                resolved_output = os.path.join(BASE_DIR, "projects", output_file_path) if output_file_path else ""
+                resolved_output = os.path.join(BASE_DIR, "projects", output_file_path) if output_file_path else ""
+
+                # ⚠️ 强制指令：必须读入文件、增量修改、写完整输出
+                output_hint = (
+                    f"\n"
+                    f"🔴🔴🔴 强制指令（不可违反）🔴🔴🔴\n"
+                    f"\n"
+                    f"1. 你收到的 task 描述只是『本次增量修改』的需求\n"
+                    f"2. **必须**完整读取下方的 input_file 内容\n"
+                    f"3. **在 input_file 基础上**添加或修改对应代码区块\n"
+                    f"4. **输出完整的 HTML 文件**（不要只输出新增代码段）\n"
+                    f"5. 用 write_file 工具将完整 HTML 写入以下路径（不要写其他地方！）：\n"
+                    f"   {resolved_output}\n"
+                    f"6. **不要创建独立 demo/测试文件**，所有代码合并到同一个 HTML\n"
+                    f"\n"
+                ) if output_file_path else ""
+
+                enriched_task = (
+                    f"## {title}\n\n"
+                    f"### 本次增量需求\n{task}\n\n"
+                    f"{output_hint}"
+                    f"### 输入文件（必须完整读取后增量修改）\n"
+                    f"以下为当前项目完整代码。请在此基础之上，自行添加本次需求对应的代码区块。\n"
+                    f"保留原有所有功能不变。输出包含所有代码的完整 HTML 文件。\n"
+                    f"\n"
+                    f"{input_summary}"
+                )
+                log(f"  已读取 input_file: {resolved_input} ({len(prev_content)} 字符)")
+            except Exception as e:
+                log_warn(f"  无法读取 input_file {resolved_input}: {e}")
+        else:
+            log_warn(f"  input_file 不存在: {resolved_input}")
+
+    # ── 附加上下文：global_context + 前一步完成事件 ──
+    ctx_events = main_bus.read(project_name, limit=30)
+    prev_completed = [e for e in ctx_events if e["type"] == "task.completed" and e.get("stage", "") != stage]
+    if prev_completed:
+        ctx_lines = ["\n### 已完成的前序步骤"]
+        for e in prev_completed[-5:]:  # 最多 5 条
+            s = e.get("stage", "?")
+            t = e.get("data", {}).get("title", "?")
+            o = e.get("data", {}).get("output_preview", "")[:150]
+            ctx_lines.append(f"- **{t}** ({s}): {o}")
+        enriched_task += "\n" + "\n".join(ctx_lines)
+
     # 重试循环
     last_error = None
     for attempt in range(retries + 1):
@@ -413,7 +476,8 @@ def execute_step(project_name, step, step_index, total_steps, retries=MAX_RETRIE
             time.sleep(3)
 
         log(f"  📤 调用 {actual_agent}(:{port}) [attempt-{attempt + 1}]")
-        result = call_agent(actual_agent, task)
+        log(f"  任务长度: {len(enriched_task)} 字符")
+        result = call_agent(actual_agent, enriched_task)
 
         if result["status"] == "ok":
             # 写 Bus: 完成
