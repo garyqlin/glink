@@ -1,359 +1,193 @@
 name: sandbox-builder
-version: 0.1.0
-description: 3D沙盒建造游戏 — 战甲流水线
+version: 0.2.0
+description: 3D沙盒建造游戏 — 战甲流水线 (Forge编入)
 
 global_context: |
-  你是一个3D游戏开发专家。以下是沙盒建造游戏的完整需求规范，所有战甲必须严格遵循。
+  你是一个3D游戏开发专家。utput: 单 HTML 文件
 
-  ## 游戏核心需求
-  - 技术栈：Three.js（CDN引入）+ Cannon-es（物理）
-  - 输出：单 HTML 文件 sandbox-builder.html，双击即玩
-  - 风格：体素方块，类 Minecraft 简化版，6种材质
-  - 平台：纯浏览器，无需本地安装
-  - 方块尺寸：1x1x1 单位立方体
+  ## 技术栈
+  - Three.js r160 (unpkg CDN) + Cannon-es (CDN) + OrbitControls
+  - 单 HTML 文件，双击即玩
+  - 体素方块，类 Minecraft 简化版，6种材质
 
-  ## 六种材质规格
-  1. 草地方块（grass）：顶面绿草，其余面泥土色
-  2. 泥土方块（dirt）：全棕土色
-  3. 木材方块（wood）：木纹棕黄
-  4. 石头方块（stone）：灰岩石质感
-  5. 砖块方块（brick）：红砖纹理
-  6. 玻璃方块（glass）：半透明蓝色玻璃
+  ## 六种材质
+  grass / dirt / wood / stone / brick / glass
 
-  ## 贴图规格
-  - 每种材质 3 张贴图：diffuse + normal + roughness
-  - 分辨率：256×256 PNG
-  - 生成方式：用 ComfyUI 文生图生成（风格统一像素风）
-  - CDN 地址：放在 imgur 或 base64 内嵌（避免跨域）
-
-  ## 游戏交互
-  - 鼠标左键：选择/高亮放置位置
-  - 鼠标右键：删除方块
-  - 滚轮 / 数字键1-6：切换材质
-  - WASD：移动相机视角
-  - 鼠标拖拽：旋转视角
-  - 空格键：打开/关闭材质选择面板
-
-  ## 评分系统
-  - 每放置1个方块：+1分
-  - 连续放置相邻方块（>5个）：+10分奖励
-  - 不同材质组合（>3种）：+15分奖励
-  - 保存建筑：+20分
-
-  ## UI 要求
-  - 底部材质工具栏（6个图标）
-  - 左上角当前分数
-  - 右上角方块总数
-  - 右上角已用材质种类数
-  - 开始菜单（标题 + 开始按钮 + 玩法说明）
-  - 游戏结束：显示总分 + 保存按钮 + 重玩按钮
-
-  ## 保存系统
-  - localStorage 存储建筑方案
-  - JSON 格式：{"blocks": [{x,y,z,type}, ...], "score": N, "date": "..."}
-  - 支持保存3个建筑槽位
-
-  ## 代码规范（所有战甲遵守）
-  - 全部代码内联到一个 HTML 文件
-  - CDN 引入：Three.js r160、OrbitControls、cannon-es
-  - 代码结构：// === SECTION NAME === 注释分隔各区块
-  - 命名：语义化，禁止缩写
-  - 中文注释：所有关键逻辑标注中文说明
+  ## 所有战甲遵守
+  - 所有代码内联到单 HTML
+  - CDN：three.module.js r160 + OrbitControls + cannon-es
+  - 注释 // === SECTION NAME === 分隔
+  - 语义化命名，中文注释
 
 steps:
   - id: step-1
-    agent: 重锤
-    description: Three.js 场景初始化 + 相机 + 光照 + 渲染循环
-    output_file: sandbox-builder-step1.html
+    executor: 重锤
+    fallback_agents: ["标准版"]
+    title: 场景初始化
+    description: Three.js 场景 + 相机 + 光照 + 渲染循环 + OrbitControls + 雾效
+    output_file: projects/sandbox-builder/sandbox-builder-step1.html
     task: |
-      创建沙盒建造游戏的 HTML 文件基础结构。
-
-      需求：
-      1. HTML5 + Three.js r160（CDN引入）+ Cannon-es
-      2. 场景：无限平地（草地纹理 PlaneGeometry 100×100）
-      3. 相机：PerspectiveCamera(60°, 宽高比, 0.1, 1000)，初始位置 (10, 8, 10)，朝向原点
-      4. 光照：AmbientLight(0xffffff, 0.4) + DirectionalLight(0xffffee, 0.8) 位于 (50, 100, 50) 投射阴影
-      5. WebGLRenderer 开启阴影 (PCFSoftShadowMap)，抗锯齿
-      6. OrbitControls：允许旋转+缩放，禁止平移，限制仰角 5°~85°
-      7. 背景色：浅蓝色 0x87CEEB（天空色）
-      8. 添加简单雾效：Fog(0x87CEEB, 30, 150)
-      9. 窗口 resize 响应
-      10. 渲染循环 requestAnimationFrame，保持基础渲染
-
-      代码规范：
-      - 使用 CDN：https://unpkg.com/three@0.160.0/build/three.module.js
-      - CDN OrbitControls：https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js
-      - CDN cannon-es：https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js
-      - 所有代码内联到一个 HTML 文件
-      - // === SECTION NAME === 注释分隔各区块
-      - 禁止引入本地文件，全部 CDN
-      - 当前阶段只需基础渲染循环，交互逻辑后续步骤添加
+      创建沙盒建造游戏 HTML 文件基础结构。
+      详细需求见 global_context 和原 workflow。
+      CDN：three@0.160.0 + OrbitControls + cannon-es@0.20.0
+      场景：无限平地，PerspectiveCamera(60°, 宽高比, 0.1, 1000) 初始 (10, 8, 10)
+      光照：Ambient + Directional 投射阴影
+      WebGLRenderer PCFSoftShadowMap + antialias
+      OrbitControls 限制仰角 5°~85°，禁止平移
+      背景 0x87CEEB，Fog(0x87CEEB, 30, 150)
+      window resize 响应
+      requestAnimationFrame 渲染循环
 
   - id: step-2
-    agent: 重锤
-    description: 方块放置系统（Raycasting + 网格吸附）
-    output_file: sandbox-builder-step2.html
-    input_file: sandbox-builder-step1.html
+    executor: 重锤
+    fallback_agents: ["标准版"]
+    title: 方块放置系统
+    description: Raycasting + 网格吸附 + 6种材质(MeshStandardMaterial) + 左键放置/右键删除 + 音效
+    output_file: projects/sandbox-builder/sandbox-builder-step2.html
+    input_file: projects/sandbox-builder/sandbox-builder-step1.html
     task: |
-      在 step-1 的基础上添加方块放置系统。
-
-      需求：
-      1. 定义 blocks[] 数组存储已放置的方块
-      2. 定义 GRID_SIZE = 1，地面网格范围 -20~20
-      3. 方块材质：使用 MeshStandardMaterial + 颜色（暂用纯色，贴图后续步骤添加）
-         - 草地：0x4CAF50（绿色）
-         - 泥土：0x795548（棕色）
-         - 木材：0x8D6E63（木棕）
-         - 石头：0x9E9E9E（灰色）
-         - 砖块：0xC62828（红色）
-         - 玻璃：0x81D4FA（蓝色半透明，transparent:true）
-      4. currentType = 'grass' 当前选中材质
-      5. Raycasting 鼠标拾取：
-         - 射线与地面（Plane Y=0）相交 → 计算放置点（网格吸附到整数坐标）
-         - 射线与已有方块表面相交 → 在相邻面放置新方块
-      6. 鼠标左键点击：放置当前材质的方块（限制高度 <20）
-      7. 鼠标右键点击：删除射线击中的方块
-      8. 网格辅助显示：GridHelper(40, 40, 0xCCCCCC, 0xCCCCCC) 半透明
-      9. 添加放置/删除音效（Web Audio API oscillator 合成，简单 beep 声）
-
-      代码规范：
-      - 完整读取 input_file 内容，在此基础上修改
-      - 保持之前所有代码不变，只添加新的 // === PLACEMENT SYSTEM === 区段
-      - 继续使用纯色材质（贴图在 step-3 添加）
+      在 step-1 基础上添加方块放置系统。
+      完整读取 input_file，在其代码基础上修改。
+      blocks[] 数组，GRID_SIZE=1，范围 -20~20
+      6种颜色材质（grass/dirt/wood/stone/brick/glass）
+      Raycasting 与地面交点和方块表面相交 → 网格吸附放置
+      左键放置，右键删除，高度限制 <20
+      GridHelper 显示
+      Web Audio API 简单 beep 音效
 
   - id: step-3
-    agent: 重锤
-    description: 材质贴图库 + ComfyUI 生成配置
-    output_file: sandbox-builder-step3.html
-    input_file: sandbox-builder-step2.html
+    executor: 重锤
+    fallback_agents: ["标准版"]
+    title: 程序生成贴图
+    description: Canvas 2D 程序生成 6 种材质 diffuse 贴图 + MeshStandardMaterial 配置
+    output_file: projects/sandbox-builder/sandbox-builder-step3.html
+    input_file: projects/sandbox-builder/sandbox-builder-step2.html
     task: |
-      在 step-2 的基础上添加贴图材质系统。
-
-      需求：
-      1. 由于无法实时调用 ComfyUI 生成贴图，使用高质量 CSS/SVG 程序生成贴图
-         - 用 Canvas 2D 绘制像素风材质图案
-         - 转 base64 data URL 作为 THREE.Texture
-         - 每种材质生成 diffuse + 简单法线效果
-      2. 六种材质生成函数（generateMaterialTexture）：
-         - grass：顶面绿色+草叶点阵，其余面泥土棕
-         - dirt：全棕+深棕颗粒点阵
-         - wood：棕+木纹水平线条+年轮点
-         - stone：灰色+随机深灰斑点（石纹）
-         - brick：红色+灰白砂浆线条（半砖交错的经典砖墙）
-         - glass：半透明蓝+玻璃高光斜线条
-      3. 每种材质的 MeshStandardMaterial 配置：
-         - grass：roughness 0.9, metalness 0.0
-         - dirt：roughness 0.95, metalness 0.0
-         - wood：roughness 0.8, metalness 0.0
-         - stone：roughness 0.95, metalness 0.1
-         - brick：roughness 0.9, metalness 0.0
-         - glass：roughness 0.05, metalness 0.2, transparent true, opacity 0.5
-      4. 缓存生成的 texture，避免每帧重绘
-      5. 更新工具栏材质图标（用 Canvas 绘制缩略图）
-
-      代码规范：
-      - 完整读取 input_file，在基础上修改
-      - 添加 // === TEXTURE SYSTEM === 区段
-      - 用 Canvas 2D 程序生成贴图，不依赖外部图片
+      在 step-2 基础上用 Canvas 2D 程序生成材质贴图。
+      六种材质各生成函数：generateGrassTexture() / generateDirtTexture() / 等
+      Canvas 绘制像素风图案，转 base64 data URL
+      配置各材质 roughness/metalness/transparent
+      缓存已生成的 texture
+      更新工具栏材质图标 Canvas 缩略图
 
   - id: step-4
-    agent: 重锤
-    description: 物理系统（重力 + 碰撞检测 + 叠放稳定性）
-    output_file: sandbox-builder-step4.html
-    input_file: sandbox-builder-step3.html
+    executor: 重锤
+    fallback_agents: ["标准版"]
+    title: 物理系统
+    description: Cannon-es 重力 + 碰撞 + 方块物理 Body 同步 + 物理步长 1/60
+    output_file: projects/sandbox-builder/sandbox-builder-step4.html
+    input_file: projects/sandbox-builder/sandbox-builder-step3.html
     task: |
-      在 step-3 的基础上添加 Cannon-es 物理系统。
-
-      需求：
-      1. 初始化 Cannon-es world：gravity (0, -20, 0)
-      2. 创建地面 plane（对应 Three.js 地面）：Cannon.Plane + Cannon.Body (mass 0)
-      3. 方块物理 Body：Box(mass 1) + 位置与 Three.js Mesh 同步
-      4. 放置方块时：
-         - 创建对应的 Cannon.Body
-         - 添加到 world
-         - 物理模拟放置（0.3秒后锁定位置）
-      5. 删除方块时：同时从 world 移除对应 body
-      6. 渲染循环中同步：body.position → mesh.position
-      7. 物理步长：fixedTimeStep 1/60，每帧最多2步
-      8. 添加简单落物音效（Web Audio API）
-
-      代码规范：
-      - 完整读取 input_file
-      - 添加 // === PHYSICS SYSTEM === 区段
-      - Cannon-es CDN：https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js
-      - 地面物理体锁定 Y 旋转
+      在 step-3 基础上加 Cannon-es 物理。
+      world gravity (0,-20,0)，地面 plane 物理体(mass 0)
+      方块 Box(mass 1) 物理 Body 与 Three Mesh 位置同步
+      放置时创建物理体，0.3s 后锁定
+      删除时移除 body
+      渲染循环中 body.position → mesh.position
 
   - id: step-5
-    agent: 绘墨
-    description: 游戏UI（材质工具栏 + 分数面板 + 操作提示）
-    output_file: sandbox-builder-step5.html
-    input_file: sandbox-builder-step4.html
+    executor: 绘墨
+    fallback_agents: ["重锤"]
+    title: 游戏 UI
+    description: 材质工具栏 + 分数面板 + 建筑统计 + 操作提示 (glassmorphism 风格)
+    output_file: projects/sandbox-builder/sandbox-builder-step5.html
+    input_file: projects/sandbox-builder/sandbox-builder-step4.html
     task: |
-      在 step-4 的基础上添加完整游戏 UI。
-
-      需求：
-      1. HTML 结构（绝对定位覆盖层）：
-         - 左上：分数面板（当前分数 + 最高分）
-         - 右上：建筑统计（方块总数 + 材质种类数）
-         - 底部中央：材质工具栏（6个带图标的按钮，高亮当前选中）
-         - 屏幕中央：操作提示文字（3秒后淡出）
-      2. 材质工具栏样式：
-         - 6个圆角按钮，每个 50×50px，带材质图标缩略图
-         - 当前选中：金色边框 + 放大效果
-         - 悬停：显示材质中文名 tooltip
-         - 键盘1-6快捷键切换
-      3. 分数面板样式：
-         - 深色半透明背景，玻璃拟态（backdrop-filter blur）
-         - 白色大字显示当前分数
-         - 字体：系统默认，等宽字体
-      4. 建筑统计样式：与分数面板风格一致
-      5. 操作提示：
-         - 初始显示操作说明
-         - 3秒后 opacity 0，6秒后 display none
-      6. 材质切换时：工具栏高亮同步更新 + 音效
-
-      代码规范：
-      - 完整读取 input_file
-      - 在 <style> 区段添加 UI 样式
-      - 在 HTML body 添加 UI 元素
-      - 在 JS 区段添加 // === UI SYSTEM ===
-      - UI 样式参考：glassmorphism（backdrop-filter blur 8px，背景 rgba(0,0,0,0.4)）
+      在 step-4 基础上添加完整 UI。
+      HTML overlay 层：左上分数面板、右上建筑统计、底部材质工具栏
+      工具栏 6 圆角按钮 50×50，当前选中金色边框，键盘 1-6 切换
+      分数面板玻璃拟态 backdrop-filter blur 8px
+      操作提示 3s 淡出
+      材质切换同步更新 UI 高亮 + 音效
 
   - id: step-6
-    agent: 绘墨
-    description: 开始菜单 + 游戏结束画面
-    output_file: sandbox-builder.html
-    input_file: sandbox-builder-step5.html
+    executor: 绘墨
+    fallback_agents: ["重锤"]
+    title: 开始菜单 + 结束画面
+    description: 全屏开始菜单 + 游戏结束统计 + 成就展示 + ESC退出
+    output_file: projects/sandbox-builder/sandbox-builder.html
+    input_file: projects/sandbox-builder/sandbox-builder-step5.html
     task: |
-      在 step-5 的基础上添加开始菜单和游戏结束画面，整合为最终版。
-
-      需求：
-      1. 开始菜单（overlay，全屏遮罩）：
-         - 标题：「🧱 沙盒建造师」（居中大字，带 emoji）
-         - 副标题：「用方块创造你的世界」
-         - 开始按钮（蓝色渐变，点击进入游戏）
-         - 玩法说明（简要3行）
-         - 已有存档提示（如有 localStorage 存档）
-      2. 游戏结束画面：
-         - 统计：总方块数、材质种类、保存时间
-         - 成就展示（达到条件的徽章）：「建筑新星」(>10方块)、「多样创作者」(>3种材质)、「沙盒大师」(>50方块)
-         - 保存按钮（保存当前建筑到槽位1-3）
-         - 读取按钮（读取已保存的建筑）
-         - 重玩按钮（清空当前建筑，重新开始）
-      3. 开始按钮点击：隐藏菜单，开始游戏
-      4. 游戏结束后（点击「完成」按钮）：显示结束画面
-      5. 保存/读取逻辑（调用 step-7 的函数，暂存函数名由 step-7 实现）
-      6. 退出按钮：在游戏中按 ESC 显示退出确认
-
-      代码规范：
-      - 完整读取 input_file
-      - 添加 // === MENU SYSTEM === 区段
-      - 最终输出覆盖为 sandbox-builder.html
-      - 整合所有之前步骤的代码，确保无冗余
+      在 step-5 基础上加开始菜单和结束画面。
+      开始菜单：标题「🧱 沙盒建造师」+ 开始按钮 + 玩法说明
+      结束画面：统计(方块数/材质种类/时间) + 成就徽章 + 保存/读取/重玩
+      ESC 退出确认
+      最终输出文件名 sandbox-builder.html
 
   - id: step-7
-    agent: 大黄蜂
-    description: 保存/读取系统（localStorage + 3槽位）
-    output_file: sandbox-builder-step7.html
-    input_file: sandbox-builder.html
+    executor: 大黄蜂
+    fallback_agents: ["标准版"]
+    title: 保存/读取系统
+    description: localStorage 3 槽位保存/读取/删除 + 槽位选择 UI
+    output_file: projects/sandbox-builder/sandbox-builder-step7.html
+    input_file: projects/sandbox-builder/sandbox-builder.html
     task: |
-      在最终版 sandbox-builder.html 的基础上添加保存/读取系统。
-
-      需求：
-      1. 保存建筑到 localStorage：
-         - key：'sandbox_save_1' / 'sandbox_save_2' / 'sandbox_save_3'
-         - 数据格式：{
-           "blocks": [{"x":0,"y":0,"z":0,"type":"grass"}, ...],
-           "score": 0,
-           "date": "2026-05-24",
-           "name": "我的建筑1"
-         }
-         - 存储前 JSON.stringify
-      2. 读取建筑：
-         - 从 localStorage 读取 JSON
-         - 解析 blocks，重新创建 Three.js Mesh
-         - 同步更新 blocks[] 数组
-         - 恢复分数
-      3. 槽位选择 UI：
-         - 3个保存槽位按钮
-         - 显示每个槽位的：名称、方块数、日期
-         - 空槽位显示「空」
-         - 已有存档显示建筑缩略图（如果有 canvas 截图）
-      4. 存档列表：检查 localStorage 中所有 'sandbox_save_*' key，渲染槽位状态
-
-      代码规范：
-      - 完整读取 input_file
-      - 添加 // === SAVE SYSTEM === 区段
-      - 提供 saveGame(slot) / loadGame(slot) / deleteGame(slot) 函数
-      - slot 参数：1 | 2 | 3
+      在 sandbox-builder.html 基础上加 localStorage 保存系统。
+      3 槽位：sandbox_save_1/2/3
+      数据格式：{blocks, score, date, name}
+      提供 saveGame(slot) / loadGame(slot) / deleteGame(slot)
+      槽位 UI：显示名称/方块数/日期/空槽位
+      读取后重建 Three.js Mesh
 
   - id: step-8
-    agent: 大黄蜂
-    description: 计分系统 + 成就徽章 + 游戏循环完善
-    output_file: sandbox-builder-final.html
-    input_file: sandbox-builder-step7.html
+    executor: 大黄蜂
+    fallback_agents: ["标准版"]
+    title: 计分系统 + 成就
+    description: 计分逻辑 + 6种成就徽章 + 最高分记录 + 分数跳数动画
+    output_file: projects/sandbox-builder/sandbox-builder-final.html
+    input_file: projects/sandbox-builder/sandbox-builder-step7.html
     task: |
-      在 step-7 的基础上完善计分系统。
-
-      需求：
-      1. 计分逻辑：
-         - 放置方块：+1分
-         - 连续相邻方块（>5个，统计连通分量）：+10分
-         - 不同材质种类（>3种）：+15分
-         - 保存建筑：+20分
-         - 删除方块：-1分
-      2. 成就系统：
-         - 「建筑新星」：放置 >10 个方块
-         - 「多样创作者」：使用 >3 种材质
-         - 「沙盒大师」：放置 >50 个方块
-         - 「高楼建造者」：建造高度达到 Y>5
-         - 「精密建筑师」：使用 >5 种材质
-         - 成就解锁时：弹出徽章动画（2秒）+ 音效
-      3. 本地最高分记录（localStorage 'sandbox_highscore'）
-      4. 分数变化动画：数字跳动效果（CSS animation）
-      5. 游戏循环完善：
-         - 建筑完成后（按完成按钮）触发计分 + 成就判定 + 结束画面
-         - 重玩时清空 blocks[] + 重新初始化 Three.js 场景
-
-      代码规范：
-      - 完整读取 input_file
-      - 添加 // === SCORE SYSTEM === 区段
-      - 提供 checkAchievements() / updateScore() 函数
-      - 成就使用 CSS keyframe 动画展示
+      完善计分和成就系统。
+      计分：放置+1，相邻>5块+10，材质>3种+15，保存+20，删除-1
+      6 种成就：建筑新星(>10)/多样创作者(>3材质)/沙盒大师(>50)/高楼建造(Y>5)/精密建筑师(>5材质)
+      localStorage sandbox_highscore 最高分
+      成就解锁 CSS keyframe 动画 + 音效
+      分数跳数效果
 
   - id: step-9
-    agent: Laser
-    description: 全流程测试 + 验证
-    output_file: sandbox-builder.html
-    input_file: sandbox-builder-final.html
+    executor: Laser
+    fallback_agents: ["标准版"]
+    title: 测试验证
+    description: 全流程测试：CDN可达性、HTML语法、关键代码段、功能覆盖率
+    output_file: projects/sandbox-builder/sandbox-builder.html
+    input_file: projects/sandbox-builder/sandbox-builder-final.html
     task: |
-      对最终版 sandbox-builder.html 进行全面测试和验证。
+      全面测试和验证 final 版本。测试清单：
+      1. 文件存在且 >50KB
+      2. CDN 资源 curl 检测可达
+      3. HTML 标签平衡、JS 括号匹配
+      4. 代码段完整性检查（Three.js init / 6种材质 / Raycasting / UI / 保存 / 计分 / 开始菜单 / 结束画面）
+      5. GET → 200
+      6. 问题修复，最终覆盖 sandbox-builder.html
+      7. 输出测试报告
 
-      测试清单：
-      1. 文件存在性：sandbox-builder.html 存在且 >50KB
-      2. CDN 资源可用性：
-         - curl 检测 Three.js CDN：https://unpkg.com/three@0.160.0/build/three.module.js
-         - curl 检测 OrbitControls CDN
-         - curl 检测 cannon-es CDN
-      3. HTML 语法检查：
-         - 无未闭合的 HTML 标签
-         - 无 JavaScript 语法错误（简单正则检查括号匹配）
-      4. 代码完整性检查：
-         - 包含 Three.js 初始化代码
-         - 包含 6 种材质定义
-         - 包含 Raycasting 逻辑
-         - 包含 UI 系统（工具栏、分数面板）
-         - 包含保存/读取逻辑
-         - 包含计分系统
-         - 包含开始菜单
-         - 包含 gameOver/结束画面
-      5. 功能测试（HTTP 请求方式）：
-         - GET sandbox-builder.html → 200
-         - 验证文件内容包含关键函数名
-      6. 如发现问题，在文件中修复（修复内容记录到报告）
-      7. 最终交付：sandbox-builder.html + 测试报告
+  - id: step-10
+    executor: forge
+    fallback_agents: [标准版, Laser]
+    title: 最终代码质检
+    description: Forge 对最终版做完整白盒+黑盒代码审查，forge_verify() 六项验证
+    output_file: projects/sandbox-builder/QUALITY_REPORT.md
+    input_file: projects/sandbox-builder/sandbox-builder.html
+    task: |
+      对最终版 sandbox-builder.html 做完整代码质量审查。
 
-      代码规范：
-      - 修复所有发现的问题
-      - 最终覆盖 sandbox-builder.html
-      - 输出测试报告（文本格式，问题列表）
+      审查要求：
+      1. forge_verify() 运行六项检查：语法/格式/lint/死代码/命名/可读性
+      2. 白盒分析：
+         - 函数覆盖（每个函数/方法/闭包的调用关系）
+         - 变量命名一致性
+         - 异常处理（try/catch 覆盖范围）
+         - 内存泄漏（DOM 引用、事件监听器未清理、requestAnimationFrame 重复启动）
+         - 性能（CSS 重排大量 DOM 操作、Raycasting 高频优化）
+         - 安全（localStorage XSS、innerHTML、eval）
+      3. 黑盒测试（思维实验）：
+         - localStorage 满 → 写入失败表现
+         - 快速连续放置 → 物理同步一致性
+         - 多窗口打开 → localStorage 竞争
+         - 浏览器窗口缩放到极致 → UI 布局变形
+         - 删除所有方块 → 场景行为正常
+         - 关闭 JS → 降级显示
+      4. 修改建议（如有安全问题直接修复代码）
+      5. 输出 QUALITY_REPORT.md（Markdown 格式，包含分数+问题列表+修复建议）
+
+      重要：本步骤只做审查和报告，不做功能修改（安全问题除外）。
