@@ -10,6 +10,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from threading import Thread
 
 from .checks import self_restart
+from .config import get_config as config_get
+from .config import get_server_port
 from .core import AGENT_PORTS, load_workflow, probe_agent
 from .log import get_reporter
 
@@ -361,7 +363,7 @@ class DashHandler(BaseHTTPRequestHandler):
 
         _poll()
         while True:
-            if time.time() - last_poll > 60:
+            if time.time() - last_poll > config_get("server.sse_heartbeat", 60):
                 try:
                     self.wfile.write(b": keepalive\n\n")
                     self.wfile.flush()
@@ -369,13 +371,14 @@ class DashHandler(BaseHTTPRequestHandler):
                     break
                 last_poll = time.time()
             _poll()
-            time.sleep(2)
+            time.sleep(config_get("server.sse_poll_interval", 2))
 
 
 def _run_server():
     socketserver.TCPServer.allow_reuse_address = True
-    srv = HTTPServer(("", 8426), DashHandler)
-    print("  📡 Dashboard API: http://127.0.0.1:8426")
+    port = get_server_port()
+    srv = HTTPServer(("", port), DashHandler)
+    print(f"  📡 Dashboard API: http://127.0.0.1:{port}")
     srv.serve_forever()
 
 

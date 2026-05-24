@@ -29,9 +29,11 @@ from agent_client import _sanitize_project_name as _sanitize
 from agent_client import call_agent as _call_agent
 from agent_client import load_workflow as _load_workflow
 
-MAX_RETRIES = 2
-POLL_INTERVAL = 3
-POLL_MAX_WAIT = 180
+from .config import get_max_retries, get_poll_interval, get_poll_max_wait
+
+MAX_RETRIES = get_max_retries()
+POLL_INTERVAL = get_poll_interval()
+POLL_MAX_WAIT = get_poll_max_wait()
 
 
 def load_workflow(project_name: str):

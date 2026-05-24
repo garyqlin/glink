@@ -24,11 +24,12 @@ from daemon import (
     run_workflow,
     start_api_server,
 )
+from daemon.config import get_default_project
 
 WORKFLOWS_DIR = os.path.join(BASE_DIR, "workflows")
 _BOOT_TIMESTAMP = os.path.join(BASE_DIR, ".glink-boot.ts")
 
-_REST_PROJECT = {"name": "testglink"}
+_REST_PROJECT = {"name": get_default_project()}
 
 
 def run_daemon(project, force=False, start_step=None):
@@ -77,7 +78,7 @@ def run_daemon(project, force=False, start_step=None):
         sys.exit(0)
 
 
-DEFAULT_PROJECT = os.environ.get("GLINK_DEFAULT_PROJECT", "testglink")
+DEFAULT_PROJECT = get_default_project()
 
 
 def main():
