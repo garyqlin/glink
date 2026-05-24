@@ -34,6 +34,12 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from threading import Thread
 
+# ── Reporter（渠道无关的汇报会话）─────────────────────
+REPORTER_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reporter")
+if REPORTER_DIR not in sys.path:
+    sys.path.insert(0, REPORTER_DIR)
+from reporter import C_ERR, C_OK, C_WARN, create_reporter
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 BUS_DIR = os.path.join(BASE_DIR, "bus")
 WORKFLOWS_DIR = os.path.join(BASE_DIR, "workflows")
@@ -495,7 +501,24 @@ def execute_step(project_name, step, step_index, total_steps, retries=MAX_RETRIE
                 },
                 stage=stage,
             )
-            log_ok(f"完成 | {result['output'][:60]}…")
+            # √ 成功后推汇报摘要
+            output_preview = result["output"][:200]
+            log_ok(f"完成 | {output_preview}…")
+            # 计算耗时字符串
+            dur_sec = result.get("duration", 0)
+            if isinstance(dur_sec, (int, float)):
+                dur_str = f"{int(dur_sec // 60)}m{int(dur_sec % 60)}s"
+            else:
+                dur_str = str(dur_sec)
+            get_reporter().summary(
+                project=project_name,
+                step_index=step_index + 1,
+                total=total_steps,
+                status=actual_agent,
+                agent=actual_agent,
+                duration=dur_str,
+                detail=output_preview[:100],
+            )
             return True
         else:
             last_error = result.get("error", "unknown")
@@ -515,7 +538,9 @@ def execute_step(project_name, step, step_index, total_steps, retries=MAX_RETRIE
             },
             stage=stage,
         )
-        log_warn(f"可选步骤，最终失败（跳过）: {last_error}")
+        msg = f"可选步骤 {title} 失败（跳过）: {last_error[:80]}"
+        log_warn(msg)
+        get_reporter().alert(f"⏭ 可选步骤跳过: {title}", msg, severity=C_WARN)
         return True  # 可选失败不中断
 
     # 必选步骤失败
@@ -533,7 +558,9 @@ def execute_step(project_name, step, step_index, total_steps, retries=MAX_RETRIE
         },
         stage=stage,
     )
-    log_err(f"必选步骤失败，流程中断: {last_error}")
+    msg = f"必选步骤 {title} 失败，流程中断: {last_error[:120]}"
+    log_err(msg)
+    get_reporter().alert(f"❌ 步骤失败: {title}", msg, severity=C_ERR)
     return False
 
 
@@ -633,61 +660,34 @@ def run_workflow(project_name, workflow, force_start=False, start_step=None):
 _REST_PROJECT = {"name": "testglink"}  # 全局：当前项目名
 
 # ── 飞书告警 ────────────────────────────────────────────
-FEISHU_ALERT_WEBHOOK = os.environ.get(
-    "GLINK_ALERT_WEBHOOK",
-    "",
-)
+# ── 汇报会话（渠道无关）────────────────────────────────
+# 初始化一次，全局复用
+_REPORTER = None
+
+
+def get_reporter():
+    """惰性初始化 Reporter（避免 import 循环）"""
+    global _REPORTER
+    if _REPORTER is None:
+        # 尝试从 glink-config.yaml 加载
+        config_path = os.path.join(BASE_DIR, "glink-config.yaml")
+        config = None
+        if os.path.exists(config_path):
+            try:
+                import yaml
+
+                with open(config_path) as f:
+                    config = yaml.safe_load(f)
+            except Exception:
+                pass
+        _REPORTER = create_reporter(config)
+    return _REPORTER
 
 
 def send_alert(title, message):
-    """发送飞书告警消息（环境变量 GLINK_ALERT_WEBHOOK）"""
-    if not FEISHU_ALERT_WEBHOOK:
-        log_warn(f"告警未发送（未配置 GLINK_ALERT_WEBHOOK）: {title}")
-        return False
-    payload = json.dumps(
-        {
-            "msg_type": "interactive",
-            "card": {
-                "header": {
-                    "title": {"tag": "plain_text", "content": f"⚠️ Glink: {title}"},
-                    "template": "red",
-                },
-                "elements": [
-                    {"tag": "markdown", "content": message},
-                    {
-                        "tag": "hr",
-                    },
-                    {
-                        "tag": "note",
-                        "elements": [
-                            {
-                                "tag": "plain_text",
-                                "content": f"Glink Daemon v0.5 | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-                            }
-                        ],
-                    },
-                ],
-            },
-        }
-    ).encode()
-    req = urllib.request.Request(
-        FEISHU_ALERT_WEBHOOK,
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            body = resp.read().decode()
-            ok = json.loads(body).get("StatusCode", 1) == 0
-            if ok:
-                log("📬 告警已发送")
-            else:
-                log_warn(f"告警发送失败: {body[:200]}")
-            return ok
-    except Exception as e:
-        log_warn(f"告警发送异常: {e}")
-        return False
+    """发送告警（通过 Reporter 抽象层）"""
+    reporter = get_reporter()
+    return reporter.alert(title, message, severity=C_ERR if "失败" in title or "error" in title.lower() else C_WARN)
 
 
 def _build_status(project_name):
@@ -978,6 +978,19 @@ class _DashHandler(BaseHTTPRequestHandler):
                 )
             self.send_json({"project": proj, "total": len(timeline), "events": timeline})
 
+        # ── Reporter 状态 ────────────────────────────
+        elif path == "/reporter":
+            r = get_reporter()
+            rtype = type(r).__name__
+            has = hasattr(r, "reporters")
+            channels = [type(rep).__name__ for rep in r.reporters] if has else [rtype]
+            self.send_json(
+                {
+                    "type": rtype,
+                    "channels": channels,
+                }
+            )
+
         else:
             self.send_json({"error": "not found"}, 404)
 
@@ -1061,12 +1074,36 @@ def run_daemon(project, force=False, start_step=None):
     log(f"   重试:   {MAX_RETRIES}x | 轮询间隔: {POLL_INTERVAL}s")
 
     workflow = load_workflow(project)
-    log(f"   加载: {workflow.get('project', {}).get('title', project)}")
-    log(f"   步骤: {len(workflow.get('steps', []))} 步")
+    wf_title = workflow.get("project", {}).get("title", project)
+    step_count = len(workflow.get("steps", []))
+    log(f"   加载: {wf_title}")
+    log(f"   步骤: {step_count} 步")
+
+    # 推启动通知
+    get_reporter().push(
+        f"🚀 **Glink 工作流启动**\n"
+        f"   项目：{project}\n"
+        f"   步骤：{step_count} 步\n"
+        f"   模式：{'重跑' if force else '断点续跑'}"
+    )
 
     success = run_workflow(project, workflow, force_start=force, start_step=start_step)
 
     # ── 保持存活（API server 持续可访问）────────────────
+    # 推完成通知
+    if success:
+        get_reporter().alert(
+            "✅ Glink 工作流完成",
+            f"项目 **{project}** 的全部 {step_count} 步已完成。",
+            severity=C_OK,
+        )
+    else:
+        get_reporter().alert(
+            "⚠️ Glink 工作流中断",
+            f"项目 **{project}** 未完成，可通过 /restart 重启。",
+            severity=C_WARN,
+        )
+
     log("")
     if success:
         log_ok("工作流完成，API 持续运行中...")
