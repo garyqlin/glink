@@ -99,15 +99,38 @@ def cleanup_pidfile():
 
 
 def self_restart(project, force=False):
-    """启动自身的新进程，取代当前进程"""
+    """启动自身的新进程，取代当前进程
+    自动从 checkpoint 恢复断点
+    """
     log_warn("⚠ 自动恢复：准备重启自身...")
+
+    # 读取 checkpoint，找到断点
+    resume_step = None
+    if not force:
+        ck_path = os.path.join(BUS_DIR, "projects", f"{project}_{CHECKPOINT_FILE}")
+        if os.path.exists(ck_path):
+            with open(ck_path) as f:
+                ck = json.load(f)
+            si = ck.get("step_index", -1)
+            if si >= 0:
+                resume_step = si + 1
+                ck_name = ck.get("title", f"step_{si}")
+                log(f"   上次完成: step-{si} ({ck_name})，从 step-{resume_step} 续跑")
+            else:
+                log("   无有效 checkpoint，从头开始")
+        else:
+            log("   无 checkpoint 文件，从头开始")
+
     send_alert(
         "Daemon 自动恢复",
-        f"**项目**: {project}\n**force**: {force}\n**pid**: {os.getpid()}\n**脚本**: {DAEMON_SCRIPT}",
+        f"**项目**: {project}\n**force**: {force}\n**恢复步**: {'step-' + str(resume_step) if resume_step is not None else '从头'}\n**pid**: {os.getpid()}\n**脚本**: {DAEMON_SCRIPT}",
     )
+
     cmd = [sys.executable, DAEMON_SCRIPT]
     if force:
         cmd.append("--force")
+    if resume_step is not None:
+        cmd.append(f"--step={resume_step}")
     if project:
         cmd.append(project)
     log(f"   重启命令: {' '.join(cmd)}")
