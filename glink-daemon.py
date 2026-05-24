@@ -1,26 +1,32 @@
 #!/usr/bin/env python3
 """
-Glink Daemon v0.3 — 断点续跑 + 失败重试
+Glink Daemon v0.4 — 监控 Dashboard + 智能路由
 
-相比 v0.2 的改进：
-1. 断点续跑：读取 Bus 事件，自动找到第一个未完成的 step，从断点继续
-2. 失败重试：可选步骤失败不中断；必选步骤失败最多重试 2 次
-3. 完成检测：通过 Bus 事件（task.completed / task.failed）确认步骤状态，不依赖单次 HTTP 调用结果
-4. Checkpoint 持久化：当前执行位置写入 .checkpoint.json，重启后自动续跑
+相比 v0.3 的改进：
+1. 监控 Dashboard：REST API 实时暴露 Bus 状态
+2. 智能路由：fallback_agents 字段，agent 不在线时自动切换备选
+3. 实时状态：/status /status/agents /status/events 三个端点
 
 使用:
   python3 glink-daemon.py <项目名>          # 自动断点续跑
   python3 glink-daemon.py <项目名> --force  # 强制从 step-1 重新开始
   python3 glink-daemon.py <项目名> --step N # 从第 N 步开始
+  # REST API（自动启动，端口 8420）
+  GET /status             # 项目概览 + Step 状态
+  GET /status/agents     # Agent 在线状态
+  GET /status/events?n=20# 最新 n 条 Bus 事件
 """
 
 import json
 import os
+import socketserver
 import sys
 import time
 import urllib.error
 import urllib.request
 from datetime import datetime
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from threading import Thread
 
 import yaml
 
@@ -163,6 +169,40 @@ def find_resume_point(project_name, steps, _force_start=False):
     return len(steps), skipped
 
 
+# ── Agent 探测（智能路由用）────────────────────────────
+def probe_agent(agent):
+    """探测 agent 是否在线，返回 (bool, port)"""
+    port = AGENT_PORTS.get(agent, 8420)
+    url = f"http://127.0.0.1:{port}/health"
+    try:
+        req = urllib.request.Request(url, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=3) as _:
+            return True, port
+    except Exception:
+        return False, port
+
+
+def resolve_agent(agent, fallback_agents=None):
+    """
+    智能路由：返回 (实际使用的agent名, port, fallback_from/None)
+    1. 探测主 agent
+    2. 不在线则遍历 fallback_agents
+    3. 都找不到返回 (agent, port, None) 由调用方决定等待
+    """
+    online, port = probe_agent(agent)
+    if online:
+        return agent, port, None
+
+    fallbacks = fallback_agents or []
+    for fb in fallbacks:
+        fb_online, fb_port = probe_agent(fb)
+        if fb_online:
+            log_warn(f"主 agent [{agent}] 不在线，切换至 fallback [{fb}]")
+            return fb, fb_port, agent
+
+    return agent, port, None  # 主 agent 不在线，但没找到 fallback
+
+
 # ── Agent HTTP 调用 ─────────────────────────────────────
 def call_agent(agent, task_desc, timeout=600):
     """HTTP 调用 agent，返回回复文本"""
@@ -209,16 +249,21 @@ def wait_for_deps(project_name, depends_on, _stage, poll_interval=POLL_INTERVAL,
 # ── 单步执行 ─────────────────────────────────────────────
 def execute_step(project_name, step, step_index, total_steps, retries=MAX_RETRIES):
     """执行单个 step，含重试逻辑"""
-    agent = step.get("executor", "标准版")
+    planned_agent = step.get("executor", "标准版")
+    fallback_agents = step.get("fallback_agents", [])
     title = step.get("title", f"Step {step_index + 1}")
     task = step.get("description") or step.get("task", "")
     stage = step.get("stage", f"step-{step_index + 1}")
     depends_on = step.get("depends_on", [])
     optional = step.get("optional", False)
 
-    port = AGENT_PORTS.get(agent, 8420)
+    # ── 智能路由 ───────────────────────────────────────
+    actual_agent, port, fallback_from = resolve_agent(planned_agent, fallback_agents)
 
-    log_step(f"╔══ [{step_index + 1}/{total_steps}] {title} → {agent}")
+    log_step(
+        f"╔══ [{step_index + 1}/{total_steps}] {title} → {actual_agent}"
+        + (f" (fallback from {fallback_from})" if fallback_from else "")
+    )
 
     # 更新 checkpoint（运行中）
     save_checkpoint(project_name, step_index, title, "running")
@@ -227,11 +272,13 @@ def execute_step(project_name, step, step_index, total_steps, retries=MAX_RETRIE
     main_bus.write(
         project_name,
         "task.started",
-        agent,
+        actual_agent,
         {
             "title": title,
             "stage": stage,
             "step_index": step_index,
+            "planned_agent": planned_agent,
+            "fallback_from": fallback_from,
         },
         stage=stage,
     )
@@ -260,20 +307,22 @@ def execute_step(project_name, step, step_index, total_steps, retries=MAX_RETRIE
             log_retry(f"重试 {attempt}/{retries} → {title}")
             time.sleep(3)
 
-        log(f"  📤 调用 {agent}(:{port}) [attempt-{attempt + 1}]")
-        result = call_agent(agent, task)
+        log(f"  📤 调用 {actual_agent}(:{port}) [attempt-{attempt + 1}]")
+        result = call_agent(actual_agent, task)
 
         if result["status"] == "ok":
             # 写 Bus: 完成
             main_bus.write(
                 project_name,
                 "task.completed",
-                agent,
+                actual_agent,
                 {
                     "title": title,
                     "output_preview": result["output"][:200],
                     "stage": stage,
                     "step_index": step_index,
+                    "planned_agent": planned_agent,
+                    "fallback_from": fallback_from,
                 },
                 stage=stage,
             )
@@ -288,7 +337,7 @@ def execute_step(project_name, step, step_index, total_steps, retries=MAX_RETRIE
         main_bus.write(
             project_name,
             "task.completed",
-            agent,
+            actual_agent,
             {
                 "title": title,
                 "status": "skipped_optional",
@@ -304,12 +353,14 @@ def execute_step(project_name, step, step_index, total_steps, retries=MAX_RETRIE
     main_bus.write(
         project_name,
         "task.failed",
-        agent,
+        actual_agent,
         {
             "title": title,
             "error": last_error,
             "stage": stage,
             "step_index": step_index,
+            "planned_agent": planned_agent,
+            "fallback_from": fallback_from,
         },
         stage=stage,
     )
@@ -402,6 +453,162 @@ def run_workflow(project_name, workflow, force_start=False, start_step=None):
     return success
 
 
+# ══════════════════════════════════════════════════════
+# REST API Server（Dashboard 用）
+# ══════════════════════════════════════════════════════
+_REST_PROJECT = {"name": "testglink"}  # 全局：当前项目名
+
+
+def _build_status(project_name):
+    """构建 /status 响应"""
+    events = main_bus.read(project_name, limit=500)
+    steps_cfg = []
+    try:
+        wf = load_workflow(project_name)
+        steps_cfg = wf.get("steps", [])
+    except Exception:
+        pass
+
+    # stage → 最终状态
+    stage_status = {}
+    stage_agent = {}
+    stage_start = {}
+    for e in events:
+        s = e.get("stage", "")
+        if not s:
+            continue
+        t = e["type"]
+        if t == "task.started":
+            if s not in stage_status:
+                stage_status[s] = "run"
+                stage_agent[s] = e.get("agent", "?")
+                stage_start[s] = e.get("ts", "")
+        elif t == "task.completed":
+            stage_status[s] = "ok"
+            stage_agent[s] = e.get("agent", stage_agent.get(s, "?"))
+        elif t == "task.failed":
+            stage_status[s] = "fail"
+            stage_agent[s] = e.get("agent", stage_agent.get(s, "?"))
+        elif t == "task.skipped":
+            stage_status[s] = "skip"
+
+    # 对齐 steps
+    steps_out = []
+    for i, step in enumerate(steps_cfg):
+        stage = step.get("stage", f"step-{i + 1}")
+        s_status = stage_status.get(stage, "wait")
+        started = stage_start.get(stage, "")
+        duration = ""
+        if started and s_status == "ok":
+            for e in events:
+                if e.get("stage") == stage and e["type"] == "task.completed":
+                    try:
+                        ts = datetime.fromisoformat(e["ts"])
+                        ts0 = datetime.fromisoformat(started)
+                        secs = (ts - ts0).seconds
+                        duration = f"{secs // 60}m{secs % 60}s"
+                    except Exception:
+                        pass
+                    break
+
+        steps_out.append(
+            {
+                "index": i + 1,
+                "title": step.get("title", stage),
+                "stage": stage,
+                "agent": stage_agent.get(stage, step.get("executor", "—")),
+                "status": s_status,
+                "status_class": s_status,
+                "duration": duration,
+            }
+        )
+
+    # 找 project.start
+    proj_started = ""
+    for e in events:
+        if e["type"] == "project.update":
+            proj_started = e.get("ts", "")
+
+    return {
+        "project_name": project_name,
+        "total_steps": len(steps_cfg),
+        "run_start": proj_started,
+        "steps": steps_out,
+        "error": None,
+    }
+
+
+class _DashHandler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.0"
+
+    def log_message(self, fmt, *args):
+        pass  # 静默
+
+    def send_json(self, data, code=200):
+        body = json.dumps(data, ensure_ascii=False)
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Length", str(len(body.encode("utf-8"))))
+        self.end_headers()
+        self.wfile.write(body.encode("utf-8"))
+
+    def do_GET(self):
+        path = self.path.split("?")[0]
+        qstr = dict(p.split("=", 1) for p in self.path.split("?")[1].split("&") if "=" in p) if "?" in self.path else {}
+        proj = _REST_PROJECT.get("name", "testglink")
+
+        if path == "/status":
+            self.send_json(_build_status(proj))
+
+        elif path == "/status/agents":
+            agents_out = []
+            for name, port in AGENT_PORTS.items():
+                online, _ = probe_agent(name)
+                agents_out.append({"name": name, "port": port, "online": online})
+            self.send_json({"agents": agents_out})
+
+        elif path == "/status/events":
+            n = int(qstr.get("n", 20))
+            events = main_bus.read(proj, limit=n)
+            ev_out = []
+            for e in events[-n:]:
+                t = e["type"]
+                s_map = {"task.completed": "ok", "task.failed": "fail", "task.started": "run", "task.skipped": "skip"}
+                ev_out.append(
+                    {
+                        "ts": e.get("ts", ""),
+                        "type": t,
+                        "agent": e.get("agent", "?"),
+                        "status_class": s_map.get(t, "wait"),
+                        "stage": e.get("stage", ""),
+                    }
+                )
+            self.send_json({"events": ev_out})
+
+        elif path == "/bus/latest":
+            events = main_bus.read(proj, limit=1)
+            self.send_json({"event": events[-1] if events else None})
+
+        elif path == "/health":
+            self.send_json({"status": "ok", "service": "glink-daemon-v0.4"})
+
+        else:
+            self.send_json({"error": "not found"}, 404)
+
+
+def _run_server(port=8420):
+    socketserver.TCPServer.allow_reuse_address = True
+    srv = HTTPServer(("", port), _DashHandler)
+    print(f"  📡 Dashboard API: http://127.0.0.1:{port}")
+    srv.serve_forever()
+
+
+def start_api_server(port=8420):
+    t = Thread(target=_run_server, args=(port,), daemon=True)
+    t.start()
+
+
 # ── CLI ─────────────────────────────────────────────────
 def main():
     project = "testglink"
@@ -416,7 +623,10 @@ def main():
         elif not arg.startswith("-"):
             project = arg
 
-    log(f"🚀 Glink Daemon v0.3 | 项目: {project}")
+    _REST_PROJECT["name"] = project
+
+    log(f"🚀 Glink Daemon v0.4 | 项目: {project}")
+    start_api_server(8426)
     log(f"   工作流: {WORKFLOWS_DIR}/{project}.yaml")
     log(f"   Bus:    {BUS_DIR}/projects/{project}.jsonl")
     log(f"   重试:   {MAX_RETRIES}x | 轮询间隔: {POLL_INTERVAL}s")
@@ -426,6 +636,18 @@ def main():
     log(f"   步骤: {len(workflow.get('steps', []))} 步")
 
     run_workflow(project, workflow, force_start=force, start_step=start_step)
+
+    # ── 保持 HTTP server 运行（Dashboard 持续可访问）────────────────
+    log("")
+    log("  ⏸  workflow 完成，HTTP API 持续运行中...")
+    log("  📡 Dashboard: http://127.0.0.1:8426")
+    log("  停止: kill $(lsof -ti :8426)")
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        log("Glink Daemon 已停止")
+        sys.exit(0)
 
 
 if __name__ == "__main__":

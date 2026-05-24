@@ -10,6 +10,9 @@ steps:
   # ──── 阶段1: 分析消化 ────
   - title: "需求分析 — 消化两份需求文档"
     executor: "标准版"
+    fallback_agents:
+        - "大黄蜂"
+        - "Laser"
     stage: "analysis"
     description: |
       阅读 `/Users/gary/Projects/nuoboke-project/客户确认-工作清单.md` 和
@@ -21,6 +24,9 @@ steps:
   # ──── 阶段2: 数据库模型升级 ────
   - title: "数据库结构审计与升级 — 对齐需求文档"
     executor: "重锤"
+    fallback_agents:
+        - "标准版"
+        - "Laser"
     stage: "database"
     description: |
       1. 审计现有数据库结构（`/Users/gary/Projects/nuoboke-project/deploy/nuoboke.sql`）
@@ -33,6 +39,9 @@ steps:
   # ──── 阶段3: 后台 API 补全 ────
   - title: "后台 API 补全 — 未实现的接口"
     executor: "重锤"
+    fallback_agents:
+        - "标准版"
+        - "Laser"
     stage: "api"
     description: |
       按照需求检查清单，补全后台 API：
@@ -45,6 +54,9 @@ steps:
   # ──── 阶段4: 后台管理页面 ────
   - title: "后台管理页面 — layuimini 前端开发"
     executor: "绘墨"
+    fallback_agents:
+        - "重锤"
+        - "标准版"
     stage: "frontend-admin"
     description: |
       开发后台管理前端页面（layuimini）：
@@ -58,6 +70,9 @@ steps:
   # ──── 阶段5: 小程序补全 ────
   - title: "小程序功能补全 — WeChat Mini Program"
     executor: "Laser"
+    fallback_agents:
+        - "大黄蜂"
+        - "标准版"
     stage: "weapp"
     description: |
       补全微信小程序剩余功能：
@@ -71,6 +86,9 @@ steps:
   # ──── 阶段6: 演示数据 ────
   - title: "填充演示数据 — 全量测试数据"
     executor: "大黄蜂"
+    fallback_agents:
+        - "标准版"
+        - "重锤"
     stage: "data-seed"
     description: |
       填充足够演示数据：
@@ -83,6 +101,9 @@ steps:
   # ──── 阶段7: 集成测试 ────
   - title: "全流程集成测试 — API 测试 + 页面渲染"
     executor: "Laser"
+    fallback_agents:
+        - "大黄蜂"
+        - "标准版"
     stage: "testing"
     description: |
       全量流程测试：
@@ -96,6 +117,9 @@ steps:
   # ──── 阶段8: 需求对比 ────
   - title: "需求 vs 交付 对比验收"
     executor: "标准版"
+    fallback_agents:
+        - "大黄蜂"
+        - "Laser"
     stage: "verify"
     description: |
       对照 `客户确认-工作清单.md` 逐条确认完成状态：
