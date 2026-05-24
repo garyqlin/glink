@@ -252,19 +252,19 @@ def execute_step(
                     f"{input_summary}"
                 )
                 log(f"  已读取 input_file: {resolved_input} ({len(prev_content)} 字符)")
-            except Exception as e:
-                log_warn(f"  无法读取 input_file {resolved_input}: {e}")
+            except Exception as exc:
+                log_warn(f"  无法读取 input_file {resolved_input}: {exc}")
         else:
             log_warn(f"  input_file 不存在: {resolved_input}")
 
     ctx_events = main_bus.read(project_name, limit=30)
-    prev_completed = [e for e in ctx_events if e["type"] == "task.completed" and e.get("stage", "") != stage]
+    prev_completed = [ev for ev in ctx_events if ev["type"] == "task.completed" and ev.get("stage", "") != stage]
     if prev_completed:
         ctx_lines = ["\n### 已完成的前序步骤"]
-        for e in prev_completed[-5:]:
-            s = e.get("stage", "?")
-            t = e.get("data", {}).get("title", "?")
-            o = e.get("data", {}).get("output_preview", "")[:150]
+        for ev in prev_completed[-5:]:
+            s = ev.get("stage", "?")
+            t = ev.get("data", {}).get("title", "?")
+            o = ev.get("data", {}).get("output_preview", "")[:150]
             ctx_lines.append(f"- **{t}** ({s}): {o}")
         enriched_task += "\n" + "\n".join(ctx_lines)
 

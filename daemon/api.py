@@ -17,7 +17,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "bus
 import main_bus
 from agent_client import load_workflow as _shared_load_workflow
 
-_REST_PROJECT = {"name": "testglink"}
+_REST_PROJECT: dict[str, str] = {"name": "testglink"}
+
+
+def set_project(name: str) -> None:
+    _REST_PROJECT["name"] = name
+
+
+def get_project() -> str:
+    return _REST_PROJECT.get("name", "testglink")
 
 
 class DashHandler(BaseHTTPRequestHandler):
@@ -45,7 +53,7 @@ class DashHandler(BaseHTTPRequestHandler):
         qstr = self._qstr()
         if path == "/restart":
             is_force = qstr.get("force", "").lower() in ("true", "1")
-            proj = _REST_PROJECT.get("name", "testglink")
+            proj = get_project()
             self.send_json(
                 {
                     "status": "ok",
@@ -59,7 +67,7 @@ class DashHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?")[0]
         qstr = self._qstr()
-        proj = _REST_PROJECT.get("name", "testglink")
+        proj = get_project()
 
         if path == "/status":
             self.send_json(self._build_status(proj))
@@ -124,6 +132,10 @@ class DashHandler(BaseHTTPRequestHandler):
                         break
             except Exception:
                 pass
+            # 如果 workflow 和 bus 都查不到这个 stage，返回 404
+            if not step_info and not started and not completions and not failures:
+                self.send_json({"error": f"stage '{stage}' not found", "stage": stage}, 404)
+                return
             out = {
                 "stage": stage,
                 "title": step_info.get("title", ""),

@@ -2,6 +2,7 @@
 
 import os
 import sys
+import threading
 from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -12,6 +13,7 @@ if REPORTER_DIR not in sys.path:
 
 # lazy import to avoid circular
 _reporter = None
+_reporter_lock = threading.Lock()
 
 
 def log(msg: str, tag: str = "  ") -> None:
@@ -43,7 +45,9 @@ def get_reporter():
     from reporter import create_reporter
 
     global _reporter
-    if _reporter is None:
+    with _reporter_lock:
+        if _reporter is not None:
+            return _reporter
         config_path = os.path.join(BASE_DIR, "glink-config.yaml")
         config = None
         if os.path.exists(config_path):
@@ -55,7 +59,7 @@ def get_reporter():
             except Exception:
                 pass
         _reporter = create_reporter(config)
-    return _reporter
+        return _reporter
 
 
 def send_alert(title, message):

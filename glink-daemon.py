@@ -77,8 +77,11 @@ def run_daemon(project, force=False, start_step=None):
         sys.exit(0)
 
 
+DEFAULT_PROJECT = os.environ.get("GLINK_DEFAULT_PROJECT", "testglink")
+
+
 def main():
-    project = "testglink"
+    project = DEFAULT_PROJECT
     force = False
     start_step = None
     serve_only = False
@@ -99,6 +102,13 @@ def main():
             project = arg
 
     _REST_PROJECT["name"] = project
+    # 同步到 api 模块的 _REST_PROJECT
+    try:
+        from daemon.api import set_project as _set_api_project
+
+        _set_api_project(project)
+    except ImportError:
+        pass
 
     if serve_only:
         log("🔄 Glink Daemon v0.5 (serve-only) | API 端口 8426")

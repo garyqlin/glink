@@ -6,7 +6,7 @@ import subprocess
 import sys
 from datetime import datetime
 
-from .log import log, log_ok, log_warn, send_alert
+from .log import log, log_err, log_ok, log_warn, send_alert
 
 DAEMON_SCRIPT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "glink-daemon.py"))
 PIDFILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".glink-daemon.pid")
@@ -103,12 +103,17 @@ def self_restart(project: str, force: bool = False) -> None:
     if project:
         cmd.append(project)
     log(f"   重启命令: {' '.join(cmd)}")
-    subprocess.Popen(
-        cmd,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
+    try:
+        subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as exc:
+        log_err(f"新进程启动失败: {exc}")
+        log("本进程保持运行，请手动检查 DAEMON_SCRIPT 路径")
+        return
     log_ok("已启动新进程，当前进程即将退出")
     cleanup_pidfile()
     sys.exit(0)
