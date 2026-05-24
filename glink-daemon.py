@@ -44,9 +44,9 @@ DAEMON_SCRIPT = os.path.abspath(__file__)
 sys.path.insert(0, BUS_DIR)
 import main_bus
 from agent_client import AGENT_PORTS  # 共享 Agent 端口映射
+from agent_client import _sanitize_project_name as _shared_sanitize
 from agent_client import call_agent as _shared_call_agent
 from agent_client import load_workflow as _shared_load_workflow
-from agent_client import _sanitize_project_name as _shared_sanitize
 
 # ── 运行时常量 ──────────────────────────────────────────
 MAX_RETRIES = 2  # 失败重试次数
@@ -198,9 +198,7 @@ def load_checkpoint(project_name: str):
     return -1, None
 
 
-def save_checkpoint(
-    project_name: str, step_index: int, step_title: str, status: str = "running"
-):
+def save_checkpoint(project_name: str, step_index: int, step_title: str, status: str = "running"):
     """原子地写入 checkpoint。
 
     用 fcntl.LOCK_EX 排他锁串行化并发写入，避免多线程 / 多进程下的脏写。
@@ -339,9 +337,7 @@ def wait_for_deps(
 
     while time.time() - start < max_wait:
         events = main_bus.read(project_name, limit=200)
-        completed_stages = {
-            e.get("stage") for e in events if e["type"] == "task.completed"
-        }
+        completed_stages = {e.get("stage") for e in events if e["type"] == "task.completed"}
         if all(ds in completed_stages for ds in dep_stages):
             log(f"  依赖满足: {dep_stages}")
             return True
@@ -427,18 +423,22 @@ def execute_step(project_name, step, step_index, total_steps, retries=MAX_RETRIE
 
                 # ⚠️ 强制指令：必须读入文件、增量修改、写完整输出
                 output_hint = (
-                    f"\n"
-                    f"🔴🔴🔴 强制指令（不可违反）🔴🔴🔴\n"
-                    f"\n"
-                    f"1. 你收到的 task 描述只是『本次增量修改』的需求\n"
-                    f"2. **必须**完整读取下方的 input_file 内容\n"
-                    f"3. **在 input_file 基础上**添加或修改对应代码区块\n"
-                    f"4. **输出完整的 HTML 文件**（不要只输出新增代码段）\n"
-                    f"5. 用 write_file 工具将完整 HTML 写入以下路径（不要写其他地方！）：\n"
-                    f"   {resolved_output}\n"
-                    f"6. **不要创建独立 demo/测试文件**，所有代码合并到同一个 HTML\n"
-                    f"\n"
-                ) if output_file_path else ""
+                    (
+                        f"\n"
+                        f"🔴🔴🔴 强制指令（不可违反）🔴🔴🔴\n"
+                        f"\n"
+                        f"1. 你收到的 task 描述只是『本次增量修改』的需求\n"
+                        f"2. **必须**完整读取下方的 input_file 内容\n"
+                        f"3. **在 input_file 基础上**添加或修改对应代码区块\n"
+                        f"4. **输出完整的 HTML 文件**（不要只输出新增代码段）\n"
+                        f"5. 用 write_file 工具将完整 HTML 写入以下路径（不要写其他地方！）：\n"
+                        f"   {resolved_output}\n"
+                        f"6. **不要创建独立 demo/测试文件**，所有代码合并到同一个 HTML\n"
+                        f"\n"
+                    )
+                    if output_file_path
+                    else ""
+                )
 
                 enriched_task = (
                     f"## {title}\n\n"
@@ -591,9 +591,7 @@ def run_workflow(project_name, workflow, force_start=False, start_step=None):
         step = steps[i]
         ok = execute_step(project_name, step, i, total_steps)
         if not ok:
-            save_checkpoint(
-                project_name, i, step.get("title", f"step-{i + 1}"), "failed"
-            )
+            save_checkpoint(project_name, i, step.get("title", f"step-{i + 1}"), "failed")
             success = False
             break
         time.sleep(1)
@@ -614,9 +612,7 @@ def run_workflow(project_name, workflow, force_start=False, start_step=None):
         log("")
         log("=" * 50)
         log_ok(f"[{project_name}] ✅ 全流程完成！{total_steps}/{total_steps} 步")
-        log(
-            f"  Bus: {s['total_events']} 事件 | Agent: {', '.join(s['agents_involved'])}"
-        )
+        log(f"  Bus: {s['total_events']} 事件 | Agent: {', '.join(s['agents_involved'])}")
         log("=" * 50)
     else:
         save_checkpoint(
@@ -778,13 +774,7 @@ class _DashHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?")[0]
-        qstr = (
-            dict(
-                p.split("=", 1) for p in self.path.split("?")[1].split("&") if "=" in p
-            )
-            if "?" in self.path
-            else {}
-        )
+        qstr = dict(p.split("=", 1) for p in self.path.split("?")[1].split("&") if "=" in p) if "?" in self.path else {}
         if path == "/restart":
             is_force = qstr.get("force", "").lower() in ("true", "1")
             proj = _REST_PROJECT.get("name", "testglink")
@@ -794,9 +784,7 @@ class _DashHandler(BaseHTTPRequestHandler):
                     "message": f"重启 {proj} {'(force)' if is_force else ''}",
                 }
             )
-            Thread(
-                target=lambda: self_restart(proj, force=is_force), daemon=True
-            ).start()
+            Thread(target=lambda: self_restart(proj, force=is_force), daemon=True).start()
         else:
             self.send_json({"error": "not found"}, 404)
 
@@ -814,13 +802,7 @@ class _DashHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?")[0]
-        qstr = (
-            dict(
-                p.split("=", 1) for p in self.path.split("?")[1].split("&") if "=" in p
-            )
-            if "?" in self.path
-            else {}
-        )
+        qstr = dict(p.split("=", 1) for p in self.path.split("?")[1].split("&") if "=" in p) if "?" in self.path else {}
         proj = _REST_PROJECT.get("name", "testglink")
 
         if path == "/status":
@@ -863,8 +845,196 @@ class _DashHandler(BaseHTTPRequestHandler):
         elif path == "/health":
             self.send_json({"status": "ok", "service": "glink-daemon-v0.5"})
 
+        # ── SSE 推送（优先级高，match 后不进入后续路径）
+        elif path == "/events/stream":
+            self._handle_sse(proj)
+
+        # ── 情报端点：单步详情 ────────────────────────
+        elif path == "/intel/step":
+            stage = qstr.get("stage", "")
+            if not stage:
+                self.send_json({"error": "need ?stage=xxx"}, 400)
+                return
+            events = main_bus.read(proj, limit=2000)
+            related = [e for e in events if e.get("stage") == stage]
+            # 从 related 中提取战甲实际产出
+            completions = [e for e in related if e["type"] == "task.completed"]
+            failures = [e for e in related if e["type"] == "task.failed"]
+            logs = [e for e in related if e["type"] == "task.log"]
+            started = [e for e in related if e["type"] == "task.started"]
+
+            step_info = {}
+            # 从 workflow yaml 找对应 step
+            try:
+                wf = _shared_load_workflow(proj)
+                for s in wf.get("steps", []):
+                    if s.get("stage", f"step-{wf['steps'].index(s) + 1}") == stage:
+                        step_info = s
+                        break
+            except Exception:
+                pass
+
+            out = {
+                "stage": stage,
+                "title": step_info.get("title", ""),
+                "description": step_info.get("description", "")[:500],
+                "executor": step_info.get("executor", ""),
+                "fallback_agents": step_info.get("fallback_agents", []),
+                "input_file": step_info.get("input_file", ""),
+                "output_file": step_info.get("output_file", ""),
+                "optional": step_info.get("optional", False),
+                "status": "wait",
+                "attempts": 0,
+                "planned_agent": step_info.get("executor", ""),
+                "actual_agent": "",
+                "run_start": "",
+                "run_end": "",
+                "duration_sec": 0,
+                "output_preview": "",
+                "errors": [],
+                "logs": len(logs),
+            }
+
+            if started:
+                out["status"] = "running"
+                out["run_start"] = started[-1].get("ts", "")
+                out["actual_agent"] = started[-1].get("agent", "")
+            if completions:
+                last = completions[-1]
+                out["status"] = "ok"
+                out["run_end"] = last.get("ts", "")
+                out["actual_agent"] = last.get("agent", "")
+                out["output_preview"] = (last.get("data", {}) or {}).get("output_preview", "")[:500]
+            if failures:
+                out["status"] = "failed"
+                out["errors"] = [f.get("data", {}).get("error", "")[:200] for f in failures]
+
+            out["attempts"] = len(started)
+            if out["run_start"] and out["run_end"]:
+                try:
+                    from datetime import datetime
+
+                    fmt_ts = "%Y-%m-%dT%H:%M:%S.%f"
+                    t0 = datetime.strptime(out["run_start"][:26], fmt_ts)
+                    t1 = datetime.strptime(out["run_end"][:26], fmt_ts)
+                    out["duration_sec"] = round((t1 - t0).total_seconds())
+                except Exception:
+                    pass
+
+            self.send_json(out)
+
+        # ── 情报端点：战甲详情 ────────────────────────
+        elif path == "/intel/agents":
+            agents_out = []
+            for name, port in AGENT_PORTS.items():
+                online = probe_agent(name)
+                agents_out.append(
+                    {
+                        "name": name,
+                        "port": port,
+                        "online": online[0],
+                        "label": "🛡️"
+                        if name in ("标准版", "扎古")
+                        else "🔨"
+                        if name in ("重锤",)
+                        else "🎨"
+                        if name in ("绘墨",)
+                        else "🐝"
+                        if name in ("大黄蜂",)
+                        else "🔬"
+                        if name in ("Laser",)
+                        else "⚒️",
+                        "last_seen": "—",
+                    }
+                )
+            self.send_json({"agents": agents_out})
+
+        # ── 情报端点：完整时间线 ──────────────────────
+        elif path == "/intel/timeline":
+            limit = int(qstr.get("n", 100))
+            events = main_bus.read(proj, limit=limit)
+            timeline = []
+            for e in events:
+                t = e["type"]
+                s_map = {
+                    "task.completed": "ok",
+                    "task.failed": "fail",
+                    "task.started": "run",
+                    "task.skipped": "skip",
+                }
+                preview = (e.get("data", {}) or {}).get("output_preview", "")[:200] if t == "task.completed" else ""
+                err = (e.get("data", {}) or {}).get("error", "")[:200] if t == "task.failed" else ""
+                timeline.append(
+                    {
+                        "ts": e.get("ts", ""),
+                        "type": t,
+                        "agent": e.get("agent", "?"),
+                        "stage": e.get("stage", ""),
+                        "status": s_map.get(t, "wait"),
+                        "preview": preview,
+                        "error": err,
+                        "title": (e.get("data", {}) or {}).get("title", ""),
+                    }
+                )
+            self.send_json({"project": proj, "total": len(timeline), "events": timeline})
+
         else:
             self.send_json({"error": "not found"}, 404)
+
+    # ── SSE 推送流 ────────────────────────────────────
+    def _handle_sse(self, project_name):
+        """Server-Sent Events 流，浏览器实时推送"""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+
+        last_poll = time.time()
+        last_event_count = 0
+
+        def _poll():
+            nonlocal last_event_count, last_poll
+            try:
+                events = main_bus.read(project_name, limit=50)
+                cnt = len(events)
+                if cnt != last_event_count:
+                    new_events = events[-(cnt - last_event_count) :] if cnt > last_event_count else []
+                    last_event_count = cnt
+                    # 推项目状态
+                    status_payload = _build_status(project_name)
+                    line = f"event: status\ndata: {json.dumps(status_payload, ensure_ascii=False)}\n\n"
+                    self.wfile.write(line.encode("utf-8"))
+                    self.wfile.flush()
+                    # 推新事件
+                    for e in new_events:
+                        line = f"event: bus_event\ndata: {json.dumps(e, ensure_ascii=False, default=str)}\n\n"
+                        self.wfile.write(line.encode("utf-8"))
+                        self.wfile.flush()
+                    last_poll = time.time()
+                    return True
+            except Exception:
+                return False
+            return False
+
+        # 立即推送一次
+        _poll()
+
+        # 轮询循环
+        while True:
+            if time.time() - last_poll > 60:
+                # 心跳保活
+                try:
+                    self.wfile.write(b": keepalive\n\n")
+                    self.wfile.flush()
+                except Exception:
+                    break
+                last_poll = time.time()
+
+            if _poll():
+                pass  # 有更新
+            time.sleep(2)
 
 
 def _run_server():
