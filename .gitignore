@@ -1,0 +1,12 @@
+pycache/
+*.pyc
+__pycache__/
+.ruff_cache/
+.mypy_cache/
+*.bak
+*.bak2
+*.fresh
+*.log
+forge-audit-*.md
+forge-arbitration.md
+checkpoints/
