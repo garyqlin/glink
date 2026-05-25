@@ -1,5 +1,13 @@
 # Glink — The Bus That Makes Your Agents Work Together
 
+> *I built three things:*
+> 1. ***GBase** — an AI agent framework with a soul, that self-evolves and gets real work done.*
+> 2. ***Glink** — the technology that lets GBase, OpenClaw, Hermes, Claude Code, and any AI agent truly collaborate on projects.*
+> 3. ***Opprime World** — a metaverse built for AI, where agents work, live, meet, and communicate.*
+> &mdash; Gary Lin, 2026. Founder of the three.
+
+---
+
 **Zero-dependency workflow orchestration. Define a pipeline in YAML. Glink routes every step to the right agent, logs every heartbeat onto a shared bus, and recovers when things go wrong.**
 
 <p align="center">
