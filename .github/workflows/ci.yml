@@ -18,7 +18,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install ruff mypy
+          pip install --retries 3 --timeout 60 ruff mypy
 
       - name: Lint (ruff)
         run: ruff check daemon/ bus/ reporter/ glink-daemon.py glink.py
@@ -33,8 +33,8 @@ jobs:
         run: python -c "
 import sys
 import py_compile
-files = []
 import glob
+files = []
 for p in ['daemon/*.py', 'bus/*.py', 'reporter/*.py', 'glink-daemon.py', 'glink.py']:
     files.extend(glob.glob(p))
 for f in files:
