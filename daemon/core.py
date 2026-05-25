@@ -23,13 +23,14 @@ from .log import (
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(BASE_DIR, "bus"))
 
-import main_bus
-from agent_client import AGENT_PORTS
-from agent_client import _sanitize_project_name as _sanitize
-from agent_client import call_agent as _call_agent
-from agent_client import load_workflow as _load_workflow
+# noqa: E402 — requires sys.path for local bus imports
+import main_bus  # noqa: E402
+from agent_client import AGENT_PORTS  # noqa: E402
+from agent_client import _sanitize_project_name as _sanitize  # noqa: E402
+from agent_client import call_agent as _call_agent  # noqa: E402
+from agent_client import load_workflow as _load_workflow  # noqa: E402
 
-from .config import get_max_retries, get_poll_interval, get_poll_max_wait
+from .config import get_max_retries, get_poll_interval, get_poll_max_wait  # noqa: E402
 
 MAX_RETRIES = get_max_retries()
 POLL_INTERVAL = get_poll_interval()

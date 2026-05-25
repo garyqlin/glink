@@ -56,7 +56,7 @@ class ReportSession(ABC):
     def alert(self, title: str, detail: str = "", severity: str = C_ERR) -> bool:
         _ = (detail, severity)
         """推一条告警"""
-        ...
+        return True
 
     def summary(
         self, project: str, step_index: int, total: int, status: str, agent: str, duration: str, detail: str = ""
@@ -295,19 +295,19 @@ if __name__ == "__main__":
 
     if "--test-feishu" in sys.argv:
         url = sys.argv[sys.argv.index("--test-feishu") + 1]
-        r = FeishuReporter(url, "Glink 测试")
-        r.push("这是 Glink Reporter 抽象层的测试消息 ✅\n渠道无关的 Session 设计已就绪。")
-        r.alert("API 测试", "这是来自 Glink Reporter 抽象层的告警测试", "red")
-        r.summary("sandbox-builder", 5, 10, "✅ 完成", "绘墨", "1m23s", "UI 工具栏+分数面板完成")
+        _feishu_r = FeishuReporter(url, "Glink 测试")
+        _feishu_r.push("这是 Glink Reporter 抽象层的测试消息 ✅\n渠道无关的 Session 设计已就绪。")
+        _feishu_r.alert("API 测试", "这是来自 Glink Reporter 抽象层的告警测试", "red")
+        _feishu_r.summary("sandbox-builder", 5, 10, "✅ 完成", "绘墨", "1m23s", "UI 工具栏+分数面板完成")
         print("✅ 飞书测试已发送")
 
     elif "--list" in sys.argv:
-        r = ConsoleReporter("Glink 测试")
-        r.push(
+        _list_r = ConsoleReporter("Glink 测试")
+        _list_r.push(
             "可用的 Reporter 实现:\n- ConsoleReporter (默认)\n- FeishuReporter\n- SilentReporter\n- MultiReporter (多路聚合)"
         )
     else:
-        r = ConsoleReporter()
-        r.push(
+        _main_r = ConsoleReporter()
+        _main_r.push(
             "Glink Reporter 抽象层 v1.0\n\n使用方式:\n  python3 reporter.py --test-feishu <webhook_url>\n  python3 reporter.py --list"
         )

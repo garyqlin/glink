@@ -65,7 +65,7 @@ def write(project_name: str, event_type: str, agent: str, data, stage: str = "")
     return entry
 
 
-def read(project_name: str, limit: int = 20, since_type: str = None):
+def read(project_name: str, limit: int = 20, since_type: str | None = None):
     """读取 Main Bus 最近的事件"""
     path = bus_path(project_name)
     if not os.path.exists(path):
@@ -91,7 +91,7 @@ def read(project_name: str, limit: int = 20, since_type: str = None):
     return entries[-limit:]
 
 
-def latest(project_name: str, event_type: str = None, agent: str = None):
+def latest(project_name: str, event_type: str | None = None, agent: str | None = None):
     """获取最新的一条事件"""
     entries = read(project_name, limit=100)
     for e in reversed(entries):

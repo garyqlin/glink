@@ -12,7 +12,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 sys.path.insert(0, os.path.join(BASE_DIR, "bus"))
 
-from daemon import (
+from daemon import (  # noqa: E402
     cleanup_pidfile,
     ensure_pid,
     get_reporter,
@@ -24,7 +24,7 @@ from daemon import (
     run_workflow,
     start_api_server,
 )
-from daemon.config import get_default_project
+from daemon.config import get_default_project  # noqa: E402
 
 WORKFLOWS_DIR = os.path.join(BASE_DIR, "workflows")
 _BOOT_TIMESTAMP = os.path.join(BASE_DIR, ".glink-boot.ts")

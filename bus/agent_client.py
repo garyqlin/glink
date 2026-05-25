@@ -18,7 +18,7 @@ import re
 import sys
 import urllib.error
 import urllib.request
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 
@@ -52,7 +52,7 @@ def _sanitize_project_name(project_name: str) -> str:
 def call_agent(
     agent: str,
     task: str,
-    port: Optional[int] = None,
+    port: int | None = None,
     timeout: int = DEFAULT_TIMEOUT,
     parse_reply: bool = True,
 ) -> dict[str, Any]:
@@ -74,9 +74,7 @@ def call_agent(
 
     url = f"http://127.0.0.1:{port}/ask"
     payload = json.dumps({"message": task, "session": True}).encode()
-    req = urllib.request.Request(
-        url, data=payload, headers={"Content-Type": "application/json"}
-    )
+    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
 
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -97,7 +95,7 @@ def call_agent(
 
 
 # ── 工作流加载 ───────────────────────────────────────────
-def load_workflow(project_name: str, base_dir: Optional[str] = None) -> dict[str, Any]:
+def load_workflow(project_name: str, base_dir: str | None = None) -> dict[str, Any]:
     """加载工作流 YAML，先查 workflows/，再查 bus/projects/。
 
     Args:

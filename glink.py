@@ -11,9 +11,9 @@ import sys
 BUS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bus")
 sys.path.insert(0, BUS_DIR)
 
-from agent_client import AGENT_PORTS, call_agent, load_workflow
-from main_bus import status as bus_status
-from main_bus import write as bus_write
+from agent_client import AGENT_PORTS, call_agent, load_workflow  # noqa: E402
+from main_bus import status as bus_status  # noqa: E402
+from main_bus import write as bus_write  # noqa: E402
 
 
 def execute_step(step, project, context):
