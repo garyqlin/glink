@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Glink Commander Dashboard</title>
+<style>
+   DARK TERMINAL UI — Command & Control
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0a0e14;
+  color: #b3b8c3;
+  min-height: 100vh;
+  overflow-x: hidden;
+  font: 13px/1.5 'SFMono-Regular','Menlo','Consolas',monospace;
+}
+/* ── Header ──────────────────────────────────────────── */
+.header {
+  background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+  border-bottom: 1px solid #30363d;
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky; top: 0; z-index: 100;
+}
+.header h1 { font-size: 16px; color: #e6edf3; }
+.header-right { display: flex; gap: 16px; align-items: center; font-size: 12px; }
+.live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+
+/* ── Main Layout ─────────────────────────────────────── */
+.main-layout { display: flex; height: calc(100vh - 50px); }
+/* Left: battle map */
+.left-pane { flex: 2; padding: 12px; overflow-y: auto; border-right: 1px solid #21262d; }
+/* Right: intel sidebar */
+.right-pane { flex: 1; padding: 12px; overflow-y: auto; min-width: 320px; }
+
+/* ── Overview Bar ────────────────────────────────────── */
+.overview-bar {
+  display: flex; gap: 8px; margin-bottom: 12px;
+}
+.overview-item {
+  background: #161b22; border: 1px solid #21262d; border-radius: 6px;
+  padding: 8px 12px; flex: 1; text-align: center;
+}
+.overview-label { font-size: 10px; color: #484f58; text-transform: uppercase; }
+.overview-value { font-size: 20px; font-weight: 700; color: #e6edf3; margin-top: 2px; }
+
+/* ── Step Cards ───────────────────────────────────────── */
+.step-list { display: flex; flex-direction: column; gap: 6px; }
+.step-card {
+  background: #161b22; border: 1px solid #21262d; border-radius: 6px;
+  padding: 8px 10px; cursor: pointer; transition: all .15s;
+}
+.step-card:hover { border-color: #58a6ff; }
+.step-card-header { display: flex; justify-content: space-between; align-items: center; }
+.step-num { font-weight: 600; color: #58a6ff; font-size: 11px; flex-shrink: 0; width: 40px; }
+.step-title { flex: 1; margin: 0 8px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.step-status { font-size: 11px; flex-shrink: 0; }
+.step-agent { font-size: 10px; color: #484f58; flex-shrink: 0; margin-left: 8px; }
+.step-duration { font-size: 10px; color: #484f58; flex-shrink: 0; margin-left: 8px; width: 50px; text-align: right;}
+
+/* Step Detail (collapsible) */
+.step-detail {
+  margin-top: 6px; padding-top: 6px; border-top: 1px solid #21262d;
+  font-size: 11px; line-height: 1.6; display: none;
+}
+.step-card.expanded .step-detail { display: block; }
+.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; }
+.detail-row { display: flex; }
+.detail-label { color: #484f58; width: 70px; flex-shrink: 0; }
+.detail-value { color: #c9d1d9; }
+.detail-section { margin-top: 6px; }
+.detail-section-title { color: #58a6ff; margin-bottom: 2px; font-weight: 500; }
+
+/* ── Sidebar Controls ──────────────────────────────────── */
+.side-card { background: #161b22; border: 1px solid #21262d; border-radius: 6px; margin-bottom: 8px; padding: 10px; }
+.side-card-title { font-size: 11px; color: #8b949e; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+
+/* Agent grid */
+.agent-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.agent-item { padding: 4px 6px; border-radius: 4px; font-size: 11px; display: flex; align-items: center; gap: 4px; }
+.agent-online { background: #003d1e; color: #7ee787; }
+.agent-offline { background: #3d0000; color: #f85149; }
+
+/* Event stream */
+.event-stream { max-height: 300px; overflow-y: auto; font-size: 10px; }
+.event-line { padding: 2px 0; border-bottom: 1px solid #0d1117; }
+
+/* Action panel */
+.action-btn {
+  background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px;
+  padding: 5px 10px; cursor: pointer; font-size: 11px; transition: all .15s; margin: 2px;
+}
+.action-btn:hover { background: #30363d; border-color: #58a6ff; }
+.action-btn.danger { color: #f85149; }
+.action-btn.danger:hover { background: #3d0000; border-color: #f85149; }
+
+/* Command Input */
+.cmd-input {
+  width: 100%; background: #0d1117; border: 1px solid #21262d; border-radius: 6px;
+  color: #c9d1d9; padding: 6px 8px; font: 12px monospace; margin-top: 6px;
+}
+.cmd-output { font-size: 11px; color: #8b949e; margin-top: 4px; }
+
+/* Toast notification */
+.toast {
+  position: fixed; bottom: 20px; right: 20px; padding: 8px 14px; border-radius: 6px;
+  font-size: 12px; z-index: 9999; animation: fadeIn .2s;
+  background: #1f2937; border: 1px solid #30363d; color: #c9d1d9;
+}
+.toast.ok { border-color: #3fb950; }
+.toast.err { border-color: #f85149; }
+@keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>⚡ Glink Commander</h1>
+  <div class="header-right">
+    <span>📡 <span id="sseStatus">Disconnected</span></span>
+    <span id="liveDot" class="live-dot" style="background:#484f58"></span>
+  </div>
+</div>
+<div class="main-layout">
+  <!-- ═══ LEFT: Battle Map ═══ -->
+  <div class="left-pane">
+    <!-- Overview bar -->
+    <div class="overview-bar">
+      <div class="overview-item"><div class="overview-label">Steps</div><div class="overview-value" id="ovTotal">—</div></div>
+      <div class="overview-item"><div class="overview-label">Done</div><div class="overview-value" id="ovDone">—</div></div>
+      <div class="overview-item"><div class="overview-label">Running</div><div class="overview-value" id="ovRun">—</div></div>
+      <div class="overview-item"><div class="overview-label">Failed</div><div class="overview-value" id="ovFail">—</div></div>
+      <div class="overview-item"><div class="overview-label">Waiting</div><div class="overview-value" id="ovWait">—</div></div>
+    </div>
+    <!-- Step list (rendered by JS) -->
+    <div class="step-list" id="stepList">Loading...</div>
+  </div>
+
+  <!-- ═══ RIGHT: Intel Sidebar ═══ -->
+  <div class="right-pane">
+    <!-- Agent Status -->
+    <div class="side-card">
+      <div class="side-card-title">🤖 Agents Online</div>
+      <div class="agent-grid" id="agentGrid">Loading...</div>
+    </div>
+    <!-- Live Event Stream -->
+    <div class="side-card">
+      <div class="side-card-title">📡 Live Event Stream</div>
+      <div class="event-stream" id="eventStream">Awaiting events...</div>
+    </div>
+    <!-- Command Center -->
+    <div class="side-card">
+      <div class="side-card-title">🎮 Command</div>
+      <div>
+        <button class="action-btn" onclick="runCmd('restart')">🔄 Resume</button>
+        <button class="action-btn danger" onclick="runCmd('restart?force=true')">💥 Force Restart</button>
+        <button class="action-btn" onclick="runCmd('restart?step=1')">⏮ From Start</button>
+        <button class="action-btn" onclick="openEventStream()">📡 Reconnect SSE</button>
+      </div>
+      <input class="cmd-input" id="cmdInput" placeholder="GLINK cmd: restart / restart?step=N / restart?force=true" onchange="runCmd(this.value)">
+      <div class="cmd-output" id="cmdOutput"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/*
+  Glink Commander Dashboard — Real-time C2 Console
+  Depends on: Glink Daemon API port 8426
+*/
+
+const DAEMON = 'http://127.0.0.1:8426';
+let lastEvents = [];
+let stepDetails = {};
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+
+function formatSec(s) {
+  if (!s || s <= 0) return '';
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return m ? `${m}m${sec}s` : `${sec}s`;
+}
+
+function toast(msg, type = 'ok') {
+  const t = document.createElement('div');
+  t.className = 'toast ' + type;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 4000);
+}
+
+// ── API calls ──────────────────────────────────────────
+async function api(path) {
+  try {
+    const r = await fetch(DAEMON + path);
+    return r.ok ? r.json() : null;
+  } catch { return null; }
+}
+
+// ── SSE connection ─────────────────────────────────────
+let eventSource = null;
+function openEventStream() {
+  if (eventSource) { eventSource.close(); }
+  $('sseStatus').textContent = '🟡 Connecting';
+  eventSource = new EventSource(DAEMON + '/events/stream');
+  eventSource.onmessage = e => {
+    $('sseStatus').textContent = '🟢 Live';
+    try {
+      const ev = JSON.parse(e.data);
+      lastEvents.unshift(ev);
+      if (lastEvents.length > 50) lastEvents.pop();
+      renderEvents();
+      renderSteps(); // Refresh on new event
+    } catch {}
+  };
+  eventSource.onerror = () => {
+    $('sseStatus').textContent = '🔴 Disconnected';
+  };
+}
+
+// ── Render main ────────────────────────────────────────
+async function renderSteps() {
+  const status = await api('/status');
+  if (!status) { $('stepList').innerHTML = '<div style="color:#f85149">⚠ Cannot connect to daemon</div>'; return; }
+
+  const steps = status.steps || [];
+  const total = steps.length;
+  const done = steps.filter(s => s.status === 'ok').length;
+  const run = steps.filter(s => s.status === 'running' || s.status === 'run').length;
+  const fail = steps.filter(s => s.status === 'failed').length;
+  const wait = steps.filter(s => !s.status || s.status === 'wait' || s.status === 'pending').length;
+
+  $('ovTotal').textContent = total;
+  $('ovDone').textContent = done;
+  $('ovRun').textContent = run;
+  $('ovFail').textContent = fail;
+  $('ovWait').textContent = wait;
+
+  const list = $('stepList');
+  if (!steps.length) { list.innerHTML = '<div style="color:#484f58;padding:20px;text-align:center">No steps yet</div>'; return; }
+
+  let html = '';
+  const badgeMap = { 'ok':'🟢 Complete','run':'🔄 Running','fail':'🔴 Failed','wait':'⏳ Waiting','skip':'⏭ Skipped' };
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i];
+    const idx = s.index != null ? s.index : i;
+    const num = '#' + (idx + 1);
+    const status = s.status || 'wait';
+    const badge = badgeMap[status] || '⏳ Waiting';
+    const title = s.title || s.stage || 'Step ' + (i + 1);
+    const agent = s.actual_agent || s.planned_agent || '';
+    const dur = formatSec(s.duration_sec);
+    html += `<div class="step-card" data-idx="${idx}" onclick="toggleDetail(this)">
+      <div class="step-card-header">
+        <span class="step-num">${num}</span>
+        <span class="step-title">${esc(title)}</span>
+        <span class="step-agent">${esc(agent)}</span>
+        <span class="step-duration">${dur}</span>
+        <span class="step-status">${badge}</span>
+      </div>
+      <div class="step-detail">
+        <div style="color:#484f58;font-size:11px;text-align:center">Loading details...</div>
+      </div>
+    </div>`;
+  }
+  list.innerHTML = html;
+
+  // Async load details
+  steps.forEach((s, i) => {
+    loadStepDetail(i, s);
+  });
+}
+
+async function loadStepDetail(idx, data) {
+  const card = document.querySelector(`.step-card[data-idx="${idx}"]`);
+  if (!card) return;
+  const container = card.querySelector('.step-detail');
+  if (!container) return;
+
+  // Try to get intel for this step
+  const stage = data.stage || 'step-' + (idx + 1);
+  const intel = await api(`/intel/step?stage=${encodeURIComponent(stage)}`);
+  const d = intel || data;
+
+  const agentIcon = {'agent-1':'🛡️','agent-2':'🔨','agent-3':'🎨','agent-4':'🐝','agent-5':'🔬','agent-6':'⚒️','default':'🤖'};
+  const icon = agentIcon[d.actual_agent||d.planned_agent||'default'] || '🤖';
+
+  container.innerHTML = `
+    <div class="detail-grid">
+      <div class="detail-row"><span class="detail-label">Agent</span><span class="detail-value">${icon} ${esc(d.actual_agent||d.planned_agent||'—')}</span></div>
+      <div class="detail-row"><span class="detail-label">Port</span><span class="detail-value">${d.agent_port||'—'}</span></div>
+      <div class="detail-row"><span class="detail-label">Status</span><span class="detail-value">${d.status === 'ok' ? '🟢 Complete' : d.status === 'running' ? '🔄 Running' : d.status === 'failed' ? '🔴 Failed' : '⏳ Waiting'}</span></div>
+      <div class="detail-row"><span class="detail-label">Duration</span><span class="detail-value">${formatSec(d.duration_sec)} ${d.attempts > 1 ? ' ('+d.attempts+' attempts)' : ''}</span></div>
+      <div class="detail-row"><span class="detail-label">Start</span><span class="detail-value">${d.run_start ? d.run_start.slice(11,19) : '—'}</span></div>
+      <div class="detail-row"><span class="detail-label">End</span><span class="detail-value">${d.run_end ? d.run_end.slice(11,19) : '—'}</span></div>
+      <div class="detail-row"><span class="detail-label">Input</span><span class="detail-value" style="font-size:10px;word-break:break-all">${d.input_file ? esc(d.input_file) : 'None'}</span></div>
+      <div class="detail-row"><span class="detail-label">Output</span><span class="detail-value" style="font-size:10px;word-break:break-all">${d.output_file ? esc(d.output_file) : 'None'}</span></div>
+      <div class="detail-row"><span class="detail-label">Skip</span><span class="detail-value">${d.optional ? '✅ Yes' : '❌ No'}</span></div>
+    </div>
+    ${d.description ? `<div class="detail-section"><div class="detail-section-title">📝 Description</div><div>${esc(d.description).slice(0,300)}</div></div>` : ''}
+    ${d.output_preview ? `<div class="detail-section"><div class="detail-section-title">📤 Output Preview</div><div style="font-size:10px;color:#8b949e">${esc(d.output_preview).slice(0,200)}</div></div>` : ''}
+    ${d.errors && d.errors.length ? `<div class="detail-section"><div class="detail-section-title">❌ Errors</div><div style="color:#f85149">${d.errors.map(e => esc(e).slice(0,200)).join('<br>')}</div></div>` : ''}
+  `;
+}
+
+function toggleDetail(el) {
+  el.classList.toggle('expanded');
+}
+
+// ── Event stream render ────────────────────────────────
+function renderEvents() {
+  const el = $('eventStream');
+  let html = '';
+  for (const ev of lastEvents.slice(0, 50)) {
+    const type = ev.type || '?';
+    const agent = ev.agent || '';
+    const title = ev.data?.title || '';
+    const ts = ev.iso ? ev.iso.slice(11, 19) : '';
+    html += `<div class="event-line">[${ts}] ${esc(type)} / ${esc(agent)}: ${esc(title).slice(0,60)}</div>`;
+  }
+  el.innerHTML = html || '<div class="event-line" style="color:#484f58">No events</div>';
+}
+
+// ── Agent status ───────────────────────────────────────
+async function renderAgents() {
+  const intel = await api('/intel/agents');
+  if (!intel) { $('agentGrid').innerHTML = '<div>No data</div>'; return; }
+  const grid = $('agentGrid');
+  const agents = intel.agents || [];
+  let html = '';
+  for (const a of agents) {
+    const cls = a.online ? 'agent-online' : 'agent-offline';
+    const icon = a.online ? '🟢' : '🔴';
+    html += `<div class="agent-item ${cls}">${icon} ${esc(a.name)} :${a.port}</div>`;
+  }
+  grid.innerHTML = html || '<div style="color:#484f58">No agents configured</div>';
+  $('liveDot').style.background = agents.some(a => a.online) ? '#3fb950' : '#f85149';
+}
+
+// ── Command execution ──────────────────────────────────
+async function runCmd(cmd) {
+  const trimmed = cmd.trim().replace(/^restart\?/, 'restart?');
+  const path = '/' + trimmed;
+  const res = await api(path);
+  toast(`${trimmed} → ${res?.ok ? '✅ Executed' : '❌ Failed'}`, res?.ok ? 'ok' : 'err');
+  $('cmdOutput').textContent = res?.message || JSON.stringify(res).slice(0,200);
+  setTimeout(renderSteps, 1000);
+}
+
+// ── Poll fallback ──────────────────────────────────────
+let pollTimer = null;
+
+// ── Init ───────────────────────────────────────────────
+async function init() {
+  await renderSteps();
+  openEventStream();
+  await renderAgents();
+  // Poll agents every 10s
+  setInterval(renderAgents, 10000);
+  // Fallback poll: if SSE drops, auto-restore every 5s
+  setInterval(() => {
+    if ($('sseStatus') && $('sseStatus').textContent.includes('Disconnected')) {
+      openEventStream();
+    }
+  }, 5000);
+}
+init();
+</script>
+</body>
+</html>
