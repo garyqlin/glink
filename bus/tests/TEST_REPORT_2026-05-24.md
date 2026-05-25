@@ -47,7 +47,6 @@
 
 ### BUS-002 [P1] — `bus_path()` 路径穿越漏洞
 
-- **复现**：`bus_path('../../etc/passwd')` → 写入 `/Users/gary/opprime/etc/passwd.jsonl`
 - **根因**：`project_name` 直接拼接路径，未做 sanitization
 - **文件**：`glink/bus/main_bus.py` → `bus_path()` 函数
 - **修复**：对 `project_name` 做白名单过滤 `re.sub(r'[^a-zA-Z0-9_-]', '_', project_name)`

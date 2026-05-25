@@ -10,7 +10,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 REPORTER_DIR = os.path.join(os.path.dirname(BASE_DIR), "reporter")
 if REPORTER_DIR not in sys.path:
-    sys.path.insert(0, REPORTER_DIR)
+    sys.path.insert(0, REPORTER_DIR)  # noqa: E402
 
 # lazy import to avoid circular
 _reporter = None

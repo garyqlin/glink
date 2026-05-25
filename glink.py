@@ -12,7 +12,7 @@ import sys
 import time
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(BASE_DIR, "bus"))
+sys.path.insert(0, os.path.join(BASE_DIR, "bus"))  # noqa: E402
 
 import main_bus
 from agent_client import call_agent as _call_agent, load_workflow as _load_workflow

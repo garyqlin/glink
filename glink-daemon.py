@@ -9,8 +9,8 @@ import sys
 import time
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, BASE_DIR)
-sys.path.insert(0, os.path.join(BASE_DIR, "bus"))
+sys.path.insert(0, BASE_DIR)  # noqa: E402
+sys.path.insert(0, os.path.join(BASE_DIR, "bus"))  # noqa: E402
 
 from daemon import (
     cleanup_pidfile,

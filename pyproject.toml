@@ -1,7 +1,7 @@
 [project]
 name = "glink"
-version = "0.1.0"
-description = "多 Agent 协作编排引擎 — 让 AI 战甲一起干活"
+version = "0.5.0"
+description = "Zero-dependency multi-agent workflow orchestration engine. YAML-defined pipelines, shared event bus, cross-agent routing."
 authors = [{ name = "Gary Lin" }]
 license = { text = "MIT" }
 readme = "README.md"
@@ -14,7 +14,12 @@ line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
-ignore = ["E501", "SIM115"]
+extend-ignore = ["E402", "E501", "SIM115"]
+
+[tool.ruff.lint.per-file-ignores]
+"daemon/core.py" = ["E402"]
+"glink-daemon.py" = ["E402"]
+"glink.py" = ["E402"]
 
 [tool.ruff.format]
 quote-style = "double"

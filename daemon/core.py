@@ -22,7 +22,7 @@ from .log import (
 )
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(BASE_DIR, "bus"))
+sys.path.insert(0, os.path.join(BASE_DIR, "bus"))  # noqa: E402
 
 import main_bus
 from agent_client import AGENT_PORTS

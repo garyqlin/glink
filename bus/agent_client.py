@@ -96,7 +96,7 @@ def call_agent(
             "error": f"HTTP {e.code}: {e.reason}",
             "duration": dur,
         }
-    except urllib.error.URLError as e:
+    except urllib.error.URLError:
         dur = round(time.time() - start, 1)
         return {
             "status": "failed",

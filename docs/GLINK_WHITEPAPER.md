@@ -553,6 +553,5 @@ python3 glink-daemon.py my-project
 
 > **Glink** — 让战甲一起干活。
 >
-> 项目位置：`/Users/gary/opprime/glink/`
 > Daemon 端口：8426
 > Dashboard：`http://127.0.0.1:8426/status`

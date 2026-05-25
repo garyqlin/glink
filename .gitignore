@@ -8,3 +8,6 @@ venv/
 *.bak.*
 glink-log/
 data/
+
+# Test projects (auto-generated, may contain local paths)
+bus/projects/

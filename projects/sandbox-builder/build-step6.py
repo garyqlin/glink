@@ -2,7 +2,7 @@
 """Patch step5.html → step6.html: 计分逻辑 + 6种成就徽章 + 最高分记录 + 分数跳数动画"""
 
 
-with open('/Users/gary/opprime/glink/projects/sandbox-builder/sandbox-builder-step5.html') as f:
+with open('os.path.join(BASE_DIR, "projects", "sandbox-builder")sandbox-builder-step5.html') as f:
     html = f.read()
 
 # ===================================================================
@@ -612,7 +612,7 @@ html = html.replace(old_boot, new_boot)
 # ===================================================================
 # WRITE OUTPUT
 # ===================================================================
-output_path = '/Users/gary/opprime/glink/projects/sandbox-builder/sandbox-builder-step6.html'
+output_path = 'os.path.join(BASE_DIR, "projects", "sandbox-builder")sandbox-builder-step6.html'
 with open(output_path, 'w') as f:
     f.write(html)
 
