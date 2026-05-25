@@ -1,53 +1,53 @@
 # ══════════════════════════════════════════════════════════
-# Glink Daemon 配置文件
-# 优先级：glink-config.yaml > 环境变量 > 默认值
+# Glink Daemon Config
+# Precedence: glink-config.yaml > env vars > defaults
 # ══════════════════════════════════════════════════════════
 
-# ── 项目 ────────────────────────────────────────────────
+# ── Project ────────────────────────────────────────────────
 project:
-  # 默认加载的工作流项目（也可通过命令行参数或 GLINK_DEFAULT_PROJECT 设置）
-  default: sandbox-builder
+  # Default workflow project (also configurable via CLI or GLINK_DEFAULT_PROJECT)
+  default: hello-world
 
-# ── 调度 ─────────────────────────────────────────────────
+# ── Scheduling ─────────────────────────────────────────────
 scheduling:
-  # 步骤重试次数（默认 2）
+  # Max retries per step (default: 2)
   max_retries: 2
-  # 依赖检查轮询间隔（秒）
+  # Dependency poll interval (seconds)
   poll_interval: 3
-  # 依赖检查超时（秒）
+  # Dependency poll timeout (seconds)
   poll_max_wait: 180
-  # 末尾步骤保留数（P2：未来支持并行时会参考此限制）
-  max_concurrent_steps: 1  # 1=串行
+  # Max concurrent steps (1 = serial execution)
+  max_concurrent_steps: 1
 
-# ── 汇报 ─────────────────────────────────────────────────
+# ── Reporting ──────────────────────────────────────────────
 reporting:
-  # 渠道列表。支持：console / feishu / silent
-  # 多路配置时会自动创建 MultiReporter
+  # Channel list. Supported: console / webhook / silent
+  # Multiple channels create a MultiReporter automatically
   channels:
     - type: console
       label: "Glink"
 
-    # 启用飞书推送时取消注释并配置 webhook
-    # - type: feishu
-    #   webhook: "https://open.feishu.cn/open-apis/bot/v2/hook/xxx"
-    #   label: "Fairy"  # 可选，默认 "Glink"
+    # To enable webhook notifications (e.g. Slack, Discord, custom):
+    # - type: webhook
+    #   url: "https://hooks.slack.com/services/xxx"
+    #   label: "Slack"
 
-  # 告警级别阈值：green / yellow / red
-  # 低于此级别的告警会被静默
+  # Alert severity threshold: green / yellow / red
+  # Alerts below this severity are suppressed
   min_alert_severity: yellow
 
-# ── API 服务器 ────────────────────────────────────────────
+# ── API Server ─────────────────────────────────────────────
 server:
   host: "127.0.0.1"
   port: 8426
-  # SSE 心跳间隔（秒）
+  # SSE heartbeat interval (seconds)
   sse_heartbeat: 60
-  # SSE 轮询间隔（秒）
+  # SSE poll interval (seconds)
   sse_poll_interval: 2
 
-# ── 安全 ─────────────────────────────────────────────────
+# ── Security ───────────────────────────────────────────────
 security:
-  # pidfile 路径（默认自动推导）
+  # PID file path (auto-detected if empty)
   pidfile: ""
-  # 进程启动超时（秒）
+  # Startup timeout (seconds)
   startup_timeout: 10

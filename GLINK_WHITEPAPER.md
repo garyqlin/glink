@@ -1,558 +1,395 @@
-# 🚀 Glink — 多 Agent 协作编排引擎
+# 🚀 Glink — Multi-Agent Workflow Orchestration Engine
 
-> **白皮书 v1.0 | 2026-05-25**
->
-> 让战甲们真正一起干活，而不是各自为战。
+> **Whitepaper v1.0 | 2026-05-25**
+> Making agents genuinely work together, not fight in silos.
 
----
+## 1. Overview
 
-## 一、概述
+**Glink** is a **lightweight multi-agent orchestration engine** for AI agent workflows.
 
-**Glink** 是一个**轻量级多 Agent 协作编排引擎**，专为 AI 战甲工作流设计。
-
-传统上，多个 AI Agent 各自独立运行，信息无法共享，成果无法接力。Glink 通过 **Main Bus 共享黑板架构** 打破这个孤岛——让不同的战甲（重锤写代码、绘墨做 UI、大黄蜂填充数据、Laser 测试、Forge 质检）像一条流水线工人一样协同工作。
+Traditionally, AI agents run in isolation — no shared information, no result handover.
+Glink breaks this isolation through **Main Bus shared blackboard architecture**:
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    Glink 引擎                         │
-│                                                      │
-│  ┌──────┐  ┌──────┐  ┌──────┐  ┌──────┐  ┌──────┐  │
-│  │重锤  │  │绘墨  │  │大黄蜂│  │Laser │  │Forge │  │
-│  └──┬───┘  └──┬───┘  └──┬───┘  └──┬───┘  └──┬───┘  │
-│     │         │         │         │         │       │
-│     └─────────┴─────────┴─────────┴─────────┘       │
-│                         │                            │
-│                    ┌────▼────┐                       │
-│                    │ Main Bus │                       │
-│                    └─────────┘                       │
-│   (JSONL 共享黑板: 每个项目一条时间线)                 │
-└─────────────────────────────────────────────────────┘
+                        ┌─────────────────────────────────┐
+                        │         Glink Engine              │
+                        ├─────────────────────────────────┤
+                        │  Agent-1  │  Agent-2  │ Agent-3  │
+                        │  (Hammer) │  (Ink)    │ (Forge)  │
+                        └─────┬─────────┬──────────┬──────┘
+                              │         │          │
+                        ┌─────▼─────────▼──────────▼──────┐
+                        │      Main Bus (JSONL blackboard) │
+                        │    One timeline per project      │
+                        └─────────────────────────────────┘
 ```
 
-**核心哲学：**
+**Core philosophy:**
 
-- **轻量** — 一个 Python 文件 + 一个 JSONL 文件就够，无外部依赖
-- **渐进** — 从简单的顺序编排一路演进到智能路由 + 自动恢复
-- **不改变战甲** — 战甲们不需要知道 Glink 的存在，通过 HTTP 标准 /ask 接口通信
-- **可观察** — 每一步都有 Bus 事件记录，Dashboard 实时可见
+- **Lightweight** — One Python file + one JSONL file. Zero external dependencies.
+- **Incremental** — From simple sequential orchestration to smart routing + auto-recovery.
+- **Agent-agnostic** — Agents don't need to know Glink exists. Communication via standard HTTP `/ask` interface.
+- **Observable** — Every step writes to the Bus, Dashboard shows real-time status.
 
----
+## 2. Core Concepts
 
-## 二、核心概念
+### 2.1 Workflow
 
-### 2.1 工作流（Workflow）
-
-一个 YAML 文件定义一组步骤（Steps），描述"谁做什么、做完交给谁"。
+A YAML file defines a set of steps — "who does what and passes to whom."
 
 ```yaml
-# 示例：沙盒建造游戏流水线
-name: sandbox-builder
-version: 0.2.0
-
-global_context: |
-  你是一个 3D 游戏开发专家。输出：单 HTML 文件
-  技术栈：Three.js r160 + Cannon-es + OrbitControls
-
+# Example: Sandbox Builder Pipeline
+project:
+  title: Sandbox Builder
+  goal: Build a 3D sandbox game (single HTML)
 steps:
-  - id: step-1
-    executor: 重锤
-    title: 场景初始化
-    description: Three.js 场景 + 相机 + 光照 + 渲染循环
-    output_file: projects/sandbox-builder/sandbox-builder-step1.html
-
-  - id: step-2
-    executor: 重锤
-    title: 方块放置系统
-    description: Raycasting + 网格吸附 + 6 种材质
-    input_file: projects/sandbox-builder/sandbox-builder-step1.html
-    output_file: projects/sandbox-builder/sandbox-builder-step2.html
+  - executor: agent-2
+    title: Scene Initialization
+    description: Three.js scene + camera + lighting + render loop
+    input_file: ""
+    output_file: "step1-scene.html"
+  - executor: agent-2
+    title: Block Placement System
+    description: Raycasting + grid snapping + 6 textures
+    input_file: "step1-scene.html"
+    output_file: "step2-blocks.html"
 ```
 
-### 2.2 Main Bus（共享黑板）
+### 2.2 Main Bus (Shared Blackboard)
 
-每个项目一个 `.jsonl` 文件，记录所有事件（`task.started` / `task.completed` / `task.failed` 等）。
+One `.jsonl` file per project, recording all events (`task.started` / `task.completed` / `task.failed` etc.).
 
-```
-projects/{project_name}.jsonl
-```
-
-每条事件：
 ```json
 {
-  "ts": "2026-05-24T22:45:41.123456",
   "type": "task.completed",
-  "agent": "绘墨",
+  "agent": "agent-3",
   "stage": "step-6",
-  "data": { "title": "开始菜单+结束画面", "output_preview": "..." }
+  "data": { "title": "Menu + End Screen", "output_preview": "..." },
+  "ts": 1748187652
 }
 ```
 
-特性：
-- **按时间追加**（append-only），永不覆盖
-- **智能路由**：任务失败后自动轮询 fallback_agents
-- **断点续跑**：支持中途崩溃后从 checkpoint 恢复
-- **依赖等待**：步骤可声明依赖，Glink 自动等待前序完成
+Features:
+- **Append-only**, never overwrites
+- **Smart routing**: auto-fallback on agent failure
+- **Checkpoint**: resume after crash
+- **Dependency wait**: step A automatically waits for step B
 
-### 2.3 战甲（Agent Armors）
+### 2.3 Agent Armors
 
-Glink 内置的 Agent 端口映射（唯一真源）：
+Built-in agent port mapping (single source of truth):
 
-| 战甲 | 端口 | 职责 |
-|:---|:---:|:---|
-| 标准版 / 扎古 | 8420 | 通用型，默认备用 |
-| 重锤 (Hammer) | 8431 | 后端、数据库、工程代码 |
-| 绘墨 (Ink) | 8432 | 前端 UI、视觉设计、体验 |
-| 大黄蜂 (Bumblebee) | 8434 | 数据填充、搜索、执行 |
-| Laser | 8435 | 测试、验证、文档 |
-| Forge / 代码臂 | 8436 | 代码审查、质量闭环、代码艺术 |
+| Agent | Port | Role |
+|-------|------|------|
+| agent-1 | 8420 | General purpose, default fallback |
+| agent-2 | 8431 | Backend, database, engineering code |
+| agent-3 | 8432 | Frontend UI, visual design, UX |
+| agent-4 | 8434 | Data population, search, execution |
+| agent-5 | 8435 | Testing, verification, documentation |
+| agent-6 | 8436 | Code review, quality gate, code craft |
 
----
+## 3. Architecture
 
-## 三、架构详解
-
-### 3.1 分层架构
+### 3.1 Layered Architecture
 
 ```
-┌────────────────────────────────────────────────┐
-│                 调用端 / API                       │
-│  ┌──────────┐  ┌────────────┐  ┌────────────┐  │
-│  │ HTTP API │  │   CLI      │  │ Dashboard  │  │
-│  │  :8426   │  │ 命令行     │  │  Web UI    │  │
-│  └────┬─────┘  └─────┬──────┘  └──────┬─────┘  │
-├───────┴──────────────┴─────────────────┴────────┤
-│                Glink 引擎层                       │
-│                                                   │
-│  ┌─────────────────────────────────────────┐     │
-│  │       工作流编排器 (Workflow Engine)       │     │
-│  │  - 步骤解析 + 依赖管理                   │     │
-│  │  - 智能路由 (planned → fallback agents)  │     │
-│  │  - 重试循环 (默认 2 次)                  │     │
-│  │  - 断点续跑 (checkpoint JSON)            │     │
-│  └────────────────┬────────────────────────┘     │
-│                   │                               │
-│  ┌────────────────▼────────────────────────┐     │
-│  │        Agent 通信层 (agent_client)        │     │
-│  │  - AGENT_PORTS 统一映射                  │     │
-│  │  - HTTP POST /ask 标准化通信             │     │
-│  │  - input_file 强制传递 + 输出指令        │     │
-│  └────────────────┬────────────────────────┘     │
-│                   │                               │
-│  ┌────────────────▼────────────────────────┐     │
-│  │        Main Bus (共享时间线 / 黑板)       │     │
-│  │  - projects/{name}.jsonl append-only     │     │
-│  │  - 8 种事件类型                          │     │
-│  │  - stage 域隔离                          │     │
-│  └─────────────────────────────────────────┘     │
-├──────────────────────────────────────────────────┤
-│                 基础设施层                         │
-│                                                   │
-│  ┌─────────┐  ┌──────────┐  ┌───────────────┐  │
-│  │ PID守护  │  │ 自恢复   │  │ HTTP Server   │  │
-│  │ pidfile  │  │ cron 自检│  │ 独立进程存活   │  │
-│  │          │  │ +告警    │  │ :8426 独立    │  │
-│  └─────────┘  └──────────┘  └───────────────┘  │
-└──────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────┐
+│              Caller / API Layer                │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐     │
+│  │ :8426    │  │  CLI     │  │  Web UI  │     │
+│  └──────────┘  └──────────┘  └──────────┘     │
+├───────────────────────────────────────────────┤
+│              Glink Engine Layer                │
+│  ┌─────────────────────────────────────────┐   │
+│  │  Workflow Orchestrator                  │   │
+│  │  - Step parsing + dependency management │   │
+│  │  - Smart routing (planned → fallback)   │   │
+│  │  - Retry loop (default 2x)             │   │
+│  │  - Checkpoint resume                   │   │
+│  └─────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────┐   │
+│  │  Agent Communication (agent_client)     │   │
+│  │  - AGENT_PORTS unified mapping          │   │
+│  │  - HTTP POST /ask standard interface    │   │
+│  │  - input_file injection + output dir.   │   │
+│  └─────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────┐   │
+│  │  Main Bus (Shared Timeline / Blackboard) │   │
+│  │  - 8 event types                        │   │
+│  │  - stage domain isolation               │   │
+│  └─────────────────────────────────────────┘   │
+├───────────────────────────────────────────────┤
+│              Infrastructure Layer              │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐     │
+│  │ PIDGuard │  │ AutoRecov│  │ HTTP Srv │     │
+│  │ pidfile  │  │ cron     │  │ :8426    │     │
+│  └──────────┘  └──────────┘  └──────────┘     │
+└───────────────────────────────────────────────┘
 ```
 
-### 3.2 执行流程
+### 3.2 Execution Flow
 
-当一个工作流被触发时：
+When a workflow is triggered:
 
-```
-① glink-daemon sandbox-builder
+1. Glink reads `workflows/<project>.yaml`
+2. Checks checkpoint for resume point
+3. For each step:
+   - Resolve dependencies (`depends_on`)
+   - Read `input_file` content, inject into task context
+   - Smart routing (planned → fallback agents)
+   - Write `task.started` to Bus
+   - HTTP call agent: `POST /ask {message, session}`
+   - Wait for completion (long-poll, max 180s)
+   - Write `task.completed` or `task.failed` to Bus
+   - Save checkpoint.json
+4. All steps done → write `project.update (completed)`
 
-② 读取 workflows/sandbox-builder.yaml
-   ↓
-③ 从 checkpoint 或 step-1 开始
-   ↓
-④ 解析 step:
-   - 检查依赖 (depends_on)
-   - 读取 input_file 并注入任务上下文
-   - 智能路由 (planned_agent → fallback)
-   ↓
-⑤ 写 Bus: task.started
-   ↓
-⑥ HTTP 调用战甲: POST /ask {message, session}
-   ↓
-⑦ 轮询等待完成 (期间保持 HTTP 长连接)
-   ↓
-⑧ 写 Bus: task.completed / task.failed
-   ↓
-⑨ 写入 checkpoint.json
-   ↓
-⑩ 循环至下一 step
-   ↓
-⑪ 所有步骤完成 → 写 project.update (completed)
-```
+### 3.3 Smart Routing
 
-### 3.3 智能路由
-
-当首选 Agent 不可用时，Glink 自动按配置的 `fallback_agents` 顺序轮询：
+When the primary agent is unavailable, Glink auto-falls back:
 
 ```yaml
-- executor: 绘墨
-  fallback_agents: ["重锤", "标准版"]
+steps:
+  - executor: agent-3
+    fallback_agents: ["agent-2", "agent-1"]
 ```
 
-路由过程：
-1. 先检查绘墨端口 (8432) → 不通则跳到重锤 (8431)
-2. 不通则跳到标准版 (8420)
-3. 所有 fallback 都不通 → 步骤失败，非可选步骤阻断流水线
+Routing process:
+1. Check agent-3 port (8432) → down → try agent-2 (8431)
+2. Down → try agent-1 (8420)
+3. All fallbacks down → step fails
 
----
+## 4. State Model
 
-## 四、状态模型
+Each step at runtime:
 
-每一 step 运行时有 4 种状态：
+| State | Meaning | Icon |
+|-------|---------|------|
+| `ok` | Completed | 🟢 |
+| `running` | Executing | 🟡 |
+| `wait` | Waiting for dependencies | ⚪ |
+| `failed` | Failed | 🔴 |
 
-| 状态 | 含义 | 图标 |
-|:---|:---|:---:|
-| `ok` | 成功完成 | 🟢 |
-| `running` | 正在执行 | 🟡 |
-| `wait` | 等待依赖完成 | ⚪ |
-| `failed` | 失败 | 🔴 |
+Project states: `started` → `running` → `completed` / `failed`
 
-整个项目还有：
-- `started` — 刚开始
-- `running` — 执行中
-- `completed` — 全部完成
-- `failed` — 某必选步骤失败
+## 5. API Reference
 
----
+### HTTP API (port 8426)
 
-## 五、API 参考
-
-### HTTP API（端口 8426）
-
-#### 查询项目状态
-
+#### Project Status
 ```
-GET /status
-→ { project_name, total_steps, status, steps: [...] }
+GET /status → { project, steps[], status }
+```
+Each step: `{ index, title, status, agent, stage }`.
+
+#### Agent Online Status
+```
+GET /intel/agents → { agents: [{name, port, online}] }
 ```
 
-每 step 包含 `{ index, title, status, agent, stage }`。
-
-#### 查询 Agent 在线状态
-
+#### Bus Events
 ```
-GET /status/agents
-→ { agents: [ { name, port, online } ] }
+GET /status/events?n=20 → [{type, agent, data, ts}]
 ```
 
-#### 查询 Bus 事件
-
+#### Restart Workflow
 ```
-GET /status/events?n=20
-→ { events: [...] }
-```
-
-#### 重启工作流
-
-```
-POST /restart          # 从当前 checkpoint 恢复
-POST /restart?force    # 强制从 step-1 重跑
-POST /restart?step=6   # 从第 6 步开始
+POST /restart          # Resume from checkpoint
+POST /restart?force    # Force restart from step 1
+POST /restart?step=6   # Start from step 6
 ```
 
-#### 健康检查
-
+#### Health Check
 ```
-GET /health
-→ { "status": "ok", "service": "glink-daemon-v0.5" }
+GET /health → { status: "ok" }
 ```
 
 ### CLI
 
 ```bash
-python3 glink-daemon.py <项目名>           # 自动断点续跑
-python3 glink-daemon.py <项目名> --force   # 从 step-1 重跑
-python3 glink-daemon.py <项目名> --step N  # 从第 N 步开始
-python3 glink-daemon.py <项目名> --serve   # 只启动 API，不跑工作流
-
-#### 工作流排队（v1.2 规划）
-
-当前 Glink 一次只处理一个工作流。排队设计已在 roadmap：
-
-```json
-// glink-config.yaml 可配置，
-// POST /queue/add { project: "foo" }
-// GET  /queue/status
-// POST /queue/cancel
-// 后台线程：完成当前工作流后自动调度队列中下一个
+python3 glink-daemon.py <project>           # Auto-resume
+python3 glink-daemon.py <project> --force   # Force restart
+python3 glink-daemon.py <project> --step N  # Start from step N
+python3 glink-daemon.py <project> --serve   # API server only
 ```
 
-队列的核心约束：
-- Bus 是单文件 JSONL（fcntl 文件锁），不支持并发写入
-- 多工作流同时跑 → 不同 bus 文件 + 不同端口实例
-- 同实例队列 → 追加到 `queue.json`，串行轮转
+## 6. Main Bus
 
----
+Main Bus is Glink's heartbeat — all agents share state through it. Not a database, not a message queue. Just an **append-only JSONL file**.
 
-## 六、Main Bus：最简里程碑
+### Event Types
 
-Main Bus 是 Glink 的心跳——所有 Agent 通过它共享状态。它不是数据库，不是消息队列，只是**一个按行追加的 JSONL 文件**。
+| Event | Meaning | Trigger |
+|-------|---------|---------|
+| `task.created` | Task created | Glink orchestrator |
+| `task.assigned` | Assigned to an agent | Glink orchestrator |
+| `task.started` | Agent started | Execution agent |
+| `task.completed` | Done (with output preview) | Execution agent |
+| `task.failed` | Failed | Execution agent |
+| `task.log` | Log during execution | Execution agent |
+| `project.update` | Project status change | Glink orchestrator |
 
-### 事件类型
-
-| 事件 | 含义 | 触发者 |
-|:---|:---|:---|
-| `task.created` | 任务被创建 | Glink 编排器 |
-| `task.assigned` | 被分派给某 Agent | Glink 编排器 |
-| `task.started` | Agent 开始执行 | 执行 Agent |
-| `task.completed` | 成功完成（含 output_preview）| 执行 Agent |
-| `task.failed` | 失败 | 执行 Agent |
-| `task.log` | 执行中的日志 | 执行 Agent |
-| `project.update` | 项目整体状态变更 | Glink 编排器 |
-
-### Python API
+### Quick Example
 
 ```python
-from main_bus import write, read, latest, status
+# Write an event
+write("myproject", "task.started", "agent-5", {"title": "Testing"})
 
-# 写入事件
-write("myproject", "task.started", "Laser", {"title": "测试"})
+# Read recent 20
+events = read("myproject", limit=20)
 
-# 读取最近 20 条
-entries = read("myproject", limit=20)
+# Get latest completed
+ev = latest("myproject", "task.completed")
 
-# 获取最新完成事件
-entry = latest("myproject", event_type="task.completed")
-
-# 获取项目状态
-info = status("myproject")
+# Get project status
+s = status("myproject")
 ```
 
-### CLI 接口
+## 7. Case Study: Sandbox Builder (v1.0 Completed)
 
-```bash
-GLINK_PROJECT=myproject python3 main_bus.py write task.started Laser '{"title":"测试"}'
-GLINK_PROJECT=myproject python3 main_bus.py read 20
-GLINK_PROJECT=myproject python3 main_bus.py status
-GLINK_PROJECT=myproject python3 main_bus.py latest task.completed
-```
+**Project**: `sandbox-builder`
+**Steps**: 10 steps × 5 agent types
+**Output**: 97KB / 2751 lines HTML (double-click to run)
 
----
+| Step | Agent | Feature | Duration |
+|------|-------|---------|----------|
+| 1 | agent-2 | Three.js scene + camera + lighting | ~5min |
+| 2 | agent-2 | Raycasting block placement/deletion | ~5min |
+| 3 | agent-2 | Canvas procedural texture generation | ~5min |
+| 4 | agent-2 | Cannon-es physics sync | ~5min |
+| 5 | agent-3 | Glassmorphism UI toolbar | ~8min |
+| 6 | agent-3 | Start menu + end screen + ESC | ~12min |
+| 7 | agent-4 | localStorage 3-slot save/load | ~6min |
+| 8 | agent-4 | Scoring + 6 achievements | ~6min |
+| 9 | agent-5 | Full black-box test | ~5min |
+| 10 | agent-6 | Complete code review + quality report | ~6min |
 
-## 七、实战案例
+**Result**: Three.js r160 + Cannon-es full-featured 3D sandbox with start menu, save/load, scoring, glassmorphism UI.
 
-### 7.1 沙盒建造游戏（v1.0 完成）
+## 8. Infrastructure
 
-**项目**：`sandbox-builder`
-**步骤**：10 步 × 5 种战甲
-**产出**：97KB / 2751 行 HTML 文件（双击即玩）
-
-| 步骤 | 战甲 | 功能 | 耗时 |
-|:---|:---|---:|---:|
-| 1 | 重锤 | Three.js 场景 + 相机 + 光照 | ~5min |
-| 2 | 重锤 | Raycasting 方块放置/删除 | ~5min |
-| 3 | 重锤 | Canvas 程序生成 6 种材质贴图 | ~5min |
-| 4 | 重锤 | Cannon-es 物理同步 | ~5min |
-| 5 | 绘墨 | Glassmorphism UI 工具栏 + 分数面板 | ~8min |
-| 6 | 绘墨 | 开始菜单 + 结束画面 + ESC 退出 | ~12min |
-| 7 | 大黄蜂 | localStorage 3 槽保存/读取 | ~6min |
-| 8 | 大黄蜂 | 计分系统 + 6 种成就徽章 | ~6min |
-| 9 | Laser | 全流程黑盒测试 | ~5min |
-| 10 | Forge | 完整代码审查 + 质量报告 | ~6min |
-
-**成果**：
-- Three.js r160 + Cannon-es 全功能 3D 沙盒
-- 6 种程序生成材质（草/土/木/石/砖/玻璃）
-- 开始菜单 / 结束画面 / ESC 退出
-- 3 槽位保存/读取（localStorage）
-- 计分系统 + 6 种成就（建筑新星 → 精密建筑师）
-- 玻璃拟态 UI（backdrop-filter）
-
-### 7.2 诺保科CRM 升级（试验中）
-
-**项目**：`testglink`
-**步骤**：8 步
-**范围**：需求分析 → 数据库迁移 → API 补全 → 后台页面 → 小程序 → 演示数据 → 集成测试 → 验收
-
----
-
-## 八、基础设施层
-
-### 自动恢复
-
-Glink 通过自带的守护机制确保稳定性：
+### Auto-Recovery
 
 ```
-┌──────────────────────────────────────┐
-│          cron 每 3 分钟自检            │
-│  glink-healthcheck.sh                 │
-│                                      │
-│  ① 检查 pidfile 对应的进程是否存活      │
-│  ② 如果挂了 → 读取 boot 时间戳          │
-│  ③ 30 秒内重启 → 从 checkpoint 恢复    │
-│  ④ 超过 30 秒 → 发飞书卡片告警（红色）  │
-└──────────────────────────────────────┘
+     cron every 3 min healthcheck
+              │
+     ┌────────▼────────┐
+     │ pidfile alive?   │
+     └────────┬────────┘
+          alive? ──► OK
+          dead?  ──► read checkpoint
+                     └── within 30s → restart from checkpoint
+                     └── >30s → alert (configure GLINK_ALERT_WEBHOOK)
 ```
 
-### 深度错误恢复（P2 深度修复）
+### Deep Error Recovery (P2)
 
-除基础 pidfile 自检外，Glink 提供 step 级别的错误恢复链：
+**Detection:**
+- Each step writes `checkpoint.json` (tmp + atomic rename, file lock)
+- `find_resume_point()` reconstructs from Bus events
+- Pure event-driven, no LLM state dependency
 
-**检测层**：
-- 每步写入 `checkpoint.json`（tmp + rename 原子写入，fcntl 文件锁）
-- `find_resume_point()` 从 Bus 事件回溯已完成的 step
-- 不依赖 LLM 状态，纯事件驱动恢复
+**Recovery chain:**
+1. pidfile fast check (sub-second) → detect crash
+2. healthcheck script every 3min → >30s downtime → alert
+3. checkpoint resume (step-level)
+4. Alert if `GLINK_ALERT_WEBHOOK` is configured
 
-**恢复层**：
-```python
-def self_restart(project, force=False):
-    if not force:
-        ck = load_checkpoint(project)           # 读 checkpoint
-        if ck.step_index >= 0:
-            resume = ck.step_index + 1           # 续跑下一步
-    Popen([DAEMON_SCRIPT, f"--step={resume}"])  # 新进程接力
-```
+### Parallelism (Planned)
 
-**兜底层**（容错链）：
-1. **pidfile 快速自检**（亚秒级）→ 发现挂掉 →
-2. **healthcheck 脚本**每 3 分钟 → 中断超过 30 秒告警 →
-3. **checkpoint 恢复**（setp 级续跑）→
-4. **飞书告警**（配置 `GLINK_ALERT_WEBHOOK` 后红色卡片推送到群）
+Current: strict sequential. Planned:
 
-如果 `self_restart` 本身失败（脚本路径错误、Python 不可用），不静默退出，而是记日志保持进程存活等待人工介入。
-
-### 排队长队与序列化
-
-Glink 当前采用**严格串行**模型：同一 daemon 进程一次只能跑一个工作流。多个项目并存时：
-
-```python
-# daemon 启动时不自动执行，仅启动 API server
-python3 glink-daemon.py my-project --serve-only
-# 通过 POST /restart?force=true 触发执行
-# 或指定默认项目在 YAML 中：
-# project:
-#   default: sandbox-builder
-```
-
-**P3 规划**：
-- 工作流排队（等待队列，前一个完成后自动启动下一个）
-- 项目优先级标记（YAML 中 `priority: P0/P1/P2`）
-- 多 daemon 实例（不同项目跑不同端口）
-
-当前限制的原因：Main Bus 是单文件 JSONL，无并发写入保护层。并行安排在 v1.2+。
-
-### 并发与并行（P2 待实现蓝图）
-
-当前所有步骤严格串行。并行计划分两阶段：
-
-**Phase 1 — 独立步骤并行**（v1.x）
+**Phase 1** — Independent step parallelism (v1.x):
 ```yaml
 steps:
-  - executor: 重锤
-    title: 后端
-    depends_on: []        # 无依赖 → 可并行
-    parallel_group: 1     # 同一 group 的步骤同时执行
-  - executor: 绘墨
-    title: 前端    
-    depends_on: []        # 无依赖 → 可并行
+  - executor: agent-2
+    title: Backend
+    depends_on: []
     parallel_group: 1
-  - executor: 大黄蜂
-    title: 集成测试
-    depends_on: [step-1, step-2]  # 等待两组完成
+  - executor: agent-3
+    title: Frontend
+    depends_on: []
+    parallel_group: 1
 ```
 
-**Phase 2 — 子工作流嵌套**（v1.3）
+**Phase 2** — Sub-workflow nesting (v1.3):
 ```yaml
 steps:
-  - executor: glink      # 特殊 executor
-    sub_workflow: backend-workflow.yaml
-  - executor: glink
-    sub_workflow: frontend-workflow.yaml
+  - executor: glink  # Special executor
+    title: Sub-pipeline
+    sub_workflow: backend-pipeline
 ```
 
-并行执行的关键前提：
-- Main Bus 写入锁（已基础支持 `fcntl.flock`）
-- event 的 `type` + `stage` 双字段查询（已支持）
-- Agent 调用需独立的 timeout 线程（已通过 `threading.Thread` 实现）
+## 9. Comparison
 
-当前 **max_concurrent_steps: 1** 配置已预留，扩展时只需改配置值。
+| Feature | Glink | Airflow | Temporal | n8n | LangGraph |
+|---------|-------|---------|----------|-----|-----------|
+| Deploy | Single file Python | DB + Web Server | gRPC Server | Node.js + Docker | Python |
+| Agent Comms | HTTP /ask | Python callable | SDK | HTTP Node | Python callable |
+| State | JSONL file | Database | Database | SQLite | Memory |
+| Smart Routing | ✅ Built-in | ❌ | ❌ | ✅ | ❌ |
+| Checkpoint | ✅ Built-in | ✅ | ✅ | ✅ | ❌ |
+| Auto-Recovery | ✅ pidfile+cron | ✅ | ✅ | ❌ | ❌ |
+| Input File Inject | ✅ Auto | ❌ | ❌ | ❌ | ❌ |
+| Learning Curve | 5 minutes | 2 hours | 4 hours | 1 hour | 1 hour |
+| Dependencies | None (stdlib only) | Postgres+Redis | gRPC+etcd | Node.js+Docker | Python |
 
----
+Glink's unique value: **Minimal + AI agent native**. It's not a general orchestrator — it's built *for* AI agents.
 
-## 九、与同类对比
+## 10. Getting Started
 
-| 特性 | Glink | Airflow | Temporal | n8n | LangGraph |
-|:---|:---:|:---:|:---:|:---:|:---:|
-| 部署方式 | 单文件 Python | 需要数据库+Web Server | 需要gRPC Server | Node.js + Docker | Python 库 |
-| 战甲通信 | HTTP /ask | Python callable | SDK | HTTP Node | Python callable |
-| 状态持久 | JSONL 文件 | 数据库 | 数据库 | SQLite | 内存 |
-| 智能路由 | ✅ 内置 | ❌ | ❌ | ✅ | ❌ |
-| 断点续跑 | ✅ 内建 | ✅ | ✅ | ✅ | ❌ |
-| 自动恢复 | ✅ pidfile + cron | ✅ | ✅ | ❌ | ❌ |
-| 输入文件拼接 | ✅ 自动注入 | ❌ | ❌ | ❌ | ❌ |
-| 学习成本 | 5分钟 | 2小时 | 4小时 | 1小时 | 1小时 |
-| 外部依赖 | 无（纯 stdlib） | Postgres + Redis | gRPC + etcd | Node.js + Docker | Python |
-
-Glink 的独特价值：**极简 + AI 战甲原生适配**。它不是通用工作流引擎，而是为 AI Agent 协作"定做"的。
-
----
-
-## 十、使用入门
-
-### 安装
+### Setup
 
 ```bash
-# 只需要 Python 3.9+
-git clone https://your-repo/glink.git
-cd glink
-
-# 无需任何 pip install（全 stdlib）
+# Python 3.9+ required
+# No pip install needed (stdlib only)
 ```
 
-### 定义一个工作流
+### Define a Workflow
 
 ```yaml
-# workflows/my-project.yaml
-name: my-project
+# workflows/hello-world.yaml
+project:
+  title: Hello World
+  goal: First pipeline
 steps:
-  - executor: 重锤
-    title: 第一步
-    description: 做什么
-    output_file: projects/my-project/result-1.html
-
-  - executor: 绘墨
-    title: 第二步（在前序基础上增量修改）
-    input_file: projects/my-project/result-1.html
-    output_file: projects/my-project/result-2.html
+  - executor: agent-1
+    title: Step 1
+    description: Write "Hello from Glink" to a file
+  - executor: agent-1
+    title: Step 2
+    description: Read and print the file
+    input_file: "step1-output.html"
 ```
 
-### 运行
+### Run
 
 ```bash
-cd glink
-python3 glink-daemon.py my-project
+python3 glink-daemon.py hello-world
 ```
 
----
+## 11. Roadmap
 
-## 十一、未来发展 roadmap
-
-| 阶段 | 功能 | 状态 |
-|:---|:---|---:|
-| v0.3 | 基本顺序编排 + HTTP 调用战甲 | ✅ |
-| v0.4 | Dashboard UI + 智能路由 + fallback_agents | ✅ |
-| v0.5 | 自动恢复 (pidfile/cron) + 绝对路径 + HTTP server 独立 | ✅ |
-| v0.6 | 三大 Bug 修复：字段不一致、状态覆盖语义、并发无锁 + 安全加固 | ✅ |
-| v0.7 | 抽取公用代码至 agent_client，消除重复 | ✅ |
-| v1.0 | input_file 强制注入 + 输出路径控制（本白皮书发布） | ✅ |
-| v1.1 | Dashboard UI 增强（实时进度可视化 + 指挥官看板） | ✅ |
-| v1.2 | 工作流排队（queue.json + 顺序调度） | 🔜 |
-| v1.3 | 条件分支（if_else 步骤 + 根据上一步结果路由） | 🔜 |
-| v1.4 | 子工作流（嵌套编排，不同项目可嵌套） | 🔜 |
-| v1.5 | 独立步骤并行执行（parallel_group + depends_on） | 🔜 |
-| v1.6 | YAML 正式配置化 + daemon/config.py 全局配置加载 | ✅ |
-| v1.7 | 深度错误恢复（原子 checkpoint + 多级容错链 + 重试 try/except） | ✅ |
-| v1.8 | 历史项目可视化回放 | 🔜 |
+| Version | Feature | Status |
+|---------|---------|--------|
+| v0.3 | Basic sequential orchestration + HTTP agent call | ✅ |
+| v0.4 | Dashboard UI + smart routing + fallback_agents | ✅ |
+| v0.5 | Auto-recovery (pidfile/cron) + absolute paths + independent HTTP | ✅ |
+| v0.6 | Bug fixes (field mismatch, state semantics, concurrency lock) | ✅ |
+| v0.7 | Extract shared code to agent_client | ✅ |
+| v1.0 | Input_file injection + output path control (this whitepaper) | ✅ |
+| v1.1 | Dashboard UI enhanced (real-time progress + commander view) | ✅ |
+| v1.2 | Workflow queue (queue.json + sequential scheduling) | 🔜 |
+| v1.3 | Conditional branching | 🔜 |
+| v1.4 | Sub-workflow nesting | 🔜 |
+| v1.5 | Parallel step execution | 🔜 |
+| v1.6 | YAML config-driven + daemon/config.py | ✅ |
+| v1.7 | Deep error recovery (atomic checkpoint + multi-level chain) | ✅ |
+| v1.8 | Historical project replay | 🔜 |
 
 ---
 
-> **Glink** — 让战甲一起干活。
->
-> 项目位置：`/Users/gary/opprime/glink/`
-> Daemon 端口：8426
-> Dashboard：`http://127.0.0.1:8426/status`
+> **Glink** — Making agents work together.
+
+> Repository: `https://github.com/garyqlin/glink`
+> Daemon port: 8426

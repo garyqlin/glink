@@ -1,4 +1,5 @@
-"""Glink Daemon — HTTP API 服务器（17 个端点）"""
+# SPDX-License-Identifier: MIT
+"""Glink Daemon — HTTP API server (17 endpoints)"""
 
 import json
 import os
@@ -59,7 +60,7 @@ class DashHandler(BaseHTTPRequestHandler):
             self.send_json(
                 {
                     "status": "ok",
-                    "message": f"重启 {proj} {'(force)' if is_force else ''}",
+                    "message": f"Restart {proj} {'(force)' if is_force else ''}",
                 }
             )
             Thread(target=lambda: self_restart(proj, force=is_force), daemon=True).start()
@@ -134,7 +135,7 @@ class DashHandler(BaseHTTPRequestHandler):
                         break
             except Exception:
                 pass
-            # 如果 workflow 和 bus 都查不到这个 stage，返回 404
+            # If neither workflow nor bus has this stage, return 404
             if not step_info and not started and not completions and not failures:
                 self.send_json({"error": f"stage '{stage}' not found", "stage": stage}, 404)
                 return
@@ -186,25 +187,12 @@ class DashHandler(BaseHTTPRequestHandler):
             agents_out = []
             for name, port in AGENT_PORTS.items():
                 online, _ = probe_agent(name)
-                label = (
-                    "🛡️"
-                    if name in ("标准版", "扎古")
-                    else "🔨"
-                    if name == "重锤"
-                    else "🎨"
-                    if name == "绘墨"
-                    else "🐝"
-                    if name == "大黄蜂"
-                    else "🔬"
-                    if name == "Laser"
-                    else "⚒️"
-                )
                 agents_out.append(
                     {
                         "name": name,
                         "port": port,
                         "online": online,
-                        "label": label,
+                        "label": "🤖",
                         "last_seen": "—",
                     }
                 )

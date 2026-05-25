@@ -1,4 +1,5 @@
-"""Glink Daemon — 工作流编排核心：运行、检查点、步骤执行"""
+# SPDX-License-Identifier: MIT
+"""Glink Daemon — Workflow orchestration core: run, checkpoint, step execution"""
 
 import fcntl
 import json
@@ -23,14 +24,13 @@ from .log import (
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(BASE_DIR, "bus"))
 
-# noqa: E402 — requires sys.path for local bus imports
-import main_bus  # noqa: E402
-from agent_client import AGENT_PORTS  # noqa: E402
-from agent_client import _sanitize_project_name as _sanitize  # noqa: E402
-from agent_client import call_agent as _call_agent  # noqa: E402
-from agent_client import load_workflow as _load_workflow  # noqa: E402
+import main_bus
+from agent_client import AGENT_PORTS
+from agent_client import _sanitize_project_name as _sanitize
+from agent_client import call_agent as _call_agent
+from agent_client import load_workflow as _load_workflow
 
-from .config import get_max_retries, get_poll_interval, get_poll_max_wait  # noqa: E402
+from .config import get_max_retries, get_poll_interval, get_poll_max_wait
 
 MAX_RETRIES = get_max_retries()
 POLL_INTERVAL = get_poll_interval()
@@ -40,7 +40,7 @@ POLL_MAX_WAIT = get_poll_max_wait()
 def load_workflow(project_name: str):
     safe = _sanitize(project_name)
     wf = _load_workflow(project_name, base_dir=BASE_DIR)
-    log(f"加载工作流: {safe}")
+    log(f"Loading workflow: {safe}")
     return wf
 
 
@@ -140,7 +140,7 @@ def resolve_agent(agent, fallback_agents=None):
     for fb in fallbacks:
         fb_online, fb_port = probe_agent(fb)
         if fb_online:
-            log_warn(f"主 agent [{agent}] 不在线，切换至 fallback [{fb}]")
+            log_warn(f"Primary agent [{agent}] offline, switching to fallback [{fb}]")
             return fb, fb_port, agent
     return agent, port, None
 
@@ -163,10 +163,10 @@ def wait_for_deps(
         events = main_bus.read(project_name, limit=200)
         completed = {e.get("stage") for e in events if e["type"] == "task.completed"}
         if all(ds in completed for ds in dep_stages):
-            log(f"  依赖满足: {dep_stages}")
+            log(f"  Dependencies satisfied: {dep_stages}")
             return True
         time.sleep(poll_interval)
-    log_warn(f"依赖超时: {dep_stages}")
+    log_warn(f"Dependency timeout: {dep_stages}")
     return False
 
 
@@ -177,7 +177,7 @@ def execute_step(
     total_steps,
     retries=MAX_RETRIES,
 ):
-    planned_agent = step.get("executor", "标准版")
+    planned_agent = step.get("executor", "agent-1")
     fallback_agents = step.get("fallback_agents", [])
     title = step.get("title", f"Step {step_index + 1}")
     task = step.get("description") or step.get("task", "")
@@ -207,13 +207,13 @@ def execute_step(
     )
 
     if depends_on:
-        log(f"  ⏳ 等待依赖: {depends_on}")
+        log(f"  ⏳ Waiting for dependencies: {depends_on}")
         if not wait_for_deps(project_name, depends_on):
             main_bus.write(
                 project_name,
                 "task.failed",
                 "glink",
-                {"title": title, "error": f"依赖超时: {depends_on}", "stage": stage},
+                {"title": title, "error": f"Dependency timeout: {depends_on}", "stage": stage},
                 stage=stage,
             )
             return False
@@ -228,42 +228,42 @@ def execute_step(
                 with open(resolved_input) as f:
                     prev_content = f.read()
                 input_summary = (
-                    f"【输入文件】{resolved_input}\n"
-                    f"文件大小: {len(prev_content)} 字符\n"
-                    f"文件内容:\n```html\n{prev_content}\n```\n"
+                    f"[Input file] {resolved_input}\n"
+                    f"Size: {len(prev_content)} chars\n"
+                    f"Content:\n```html\n{prev_content}\n```\n"
                 )
                 resolved_output = os.path.join(BASE_DIR, "projects", output_file_path) if output_file_path else ""
                 output_hint = (
                     (
-                        "\n🔴🔴🔴 强制指令（不可违反）🔴🔴🔴\n"
-                        "1. task 描述只是『本次增量修改』的需求\n"
-                        "2. **必须**完整读取下方的 input_file 内容\n"
-                        "3. **在 input_file 基础上**添加或修改对应代码区块\n"
-                        "4. **输出完整的 HTML 文件**（不要只输出新增代码段）\n"
-                        "5. 用 write_file 工具将完整 HTML 写入以下路径：\n"
+                        "\n🔴🔴🔴 MANDATORY INSTRUCTIONS 🔴🔴🔴\n"
+                        "1. The task below describes the INCREMENTAL change for THIS step.\n"
+                        "2. **Must** fully read the input_file content below.\n"
+                        "3. Build UPON the input_file — add/modify code sections within it.\n"
+                        "4. **Output the COMPLETE file** (not just new code snippets).\n"
+                        "5. Write the complete file to the specified output path:\n"
                         f"   {resolved_output}\n"
-                        "6. **不要创建独立 demo/测试文件**，所有代码合并到同一个 HTML\n"
+                        "6. **Do NOT create standalone demo/test files** — merge all code into one file.\n"
                     )
                     if output_file_path
                     else ""
                 )
                 enriched_task = (
-                    f"## {title}\n\n### 本次增量需求\n{task}\n\n{output_hint}"
-                    "### 输入文件（必须完整读取后增量修改）\n"
-                    "以下为当前项目完整代码。请在此基础之上，自行添加本次需求对应的代码区块。\n"
-                    "保留原有所有功能不变。输出包含所有代码的完整 HTML 文件。\n\n"
+                    f"## {title}\n\n### Incremental change for this step\n{task}\n\n{output_hint}"
+                    "### Input file (must read in full before modifying)\n"
+                    "This is the current complete source. Add your changes on top of it.\n"
+                    "Keep all existing functionality. Output the complete file with all code.\n\n"
                     f"{input_summary}"
                 )
-                log(f"  已读取 input_file: {resolved_input} ({len(prev_content)} 字符)")
+                log(f"  Read input_file: {resolved_input} ({len(prev_content)} chars)")
             except Exception as exc:
-                log_warn(f"  无法读取 input_file {resolved_input}: {exc}")
+                log_warn(f"  Could not read input_file {resolved_input}: {exc}")
         else:
-            log_warn(f"  input_file 不存在: {resolved_input}")
+            log_warn(f"  input_file not found: {resolved_input}")
 
     ctx_events = main_bus.read(project_name, limit=30)
     prev_completed = [ev for ev in ctx_events if ev["type"] == "task.completed" and ev.get("stage", "") != stage]
     if prev_completed:
-        ctx_lines = ["\n### 已完成的前序步骤"]
+        ctx_lines = ["\n### Previously completed steps"]
         for ev in prev_completed[-5:]:
             s = ev.get("stage", "?")
             t = ev.get("data", {}).get("title", "?")
@@ -274,10 +274,10 @@ def execute_step(
     last_error = None
     for attempt in range(retries + 1):
         if attempt > 0:
-            log_retry(f"重试 {attempt}/{retries} → {title}")
+            log_retry(f"Retry {attempt}/{retries} → {title}")
             time.sleep(3)
-        log(f"  📤 调用 {actual_agent}(:{port}) [attempt-{attempt + 1}]")
-        log(f"  任务长度: {len(enriched_task)} 字符")
+        log(f"  📤 Calling {actual_agent}(:{port}) [attempt-{attempt + 1}]")
+        log(f"  Task length: {len(enriched_task)} chars")
         result = call_agent(actual_agent, enriched_task)
 
         if result["status"] == "ok":
@@ -296,7 +296,7 @@ def execute_step(
                 stage=stage,
             )
             output_preview = result["output"][:200]
-            log_ok(f"完成 | {output_preview}…")
+            log_ok(f"Done | {output_preview}…")
             dur_sec = result.get("duration", 0)
             dur_str = (
                 f"{int(dur_sec // 60)}m{int(dur_sec % 60)}s" if isinstance(dur_sec, (int, float)) else str(dur_sec)
@@ -313,7 +313,7 @@ def execute_step(
             return True
         else:
             last_error = result.get("error", "unknown")
-            log_warn(f"  attempt-{attempt + 1} 失败: {last_error}")
+            log_warn(f"  attempt-{attempt + 1} failed: {last_error}")
 
     if optional:
         main_bus.write(
@@ -328,9 +328,9 @@ def execute_step(
             },
             stage=stage,
         )
-        msg = f"可选步骤 {title} 失败（跳过）: {last_error[:80]}"
+        msg = f"Optional step {title} failed (skipping): {last_error[:80]}"
         log_warn(msg)
-        get_reporter().alert(f"⏭ 可选步骤跳过: {title}", msg, severity="yellow")
+        get_reporter().alert(f"⏭ Skipped optional step: {title}", msg, severity="yellow")
         return True
 
     main_bus.write(
@@ -347,9 +347,9 @@ def execute_step(
         },
         stage=stage,
     )
-    msg = f"必选步骤 {title} 失败，流程中断: {last_error[:120]}"
+    msg = f"Required step {title} failed, pipeline interrupted: {last_error[:120]}"
     log_err(msg)
-    get_reporter().alert(f"❌ 步骤失败: {title}", msg, severity="red")
+    get_reporter().alert(f"❌ Step failed: {title}", msg, severity="red")
     return False
 
 
@@ -357,7 +357,7 @@ def run_workflow(project_name, workflow, force_start=False, start_step=None):
     steps = workflow.get("steps", [])
     total = len(steps)
     if total == 0:
-        log_err("工作流没有步骤")
+        log_err("Workflow has no steps")
         return
 
     events = main_bus.read(project_name, limit=5)
@@ -377,11 +377,11 @@ def run_workflow(project_name, workflow, force_start=False, start_step=None):
     if start_step is not None:
         start_index = max(0, int(start_step) - 1)
         skipped = []
-        log(f"强制从 step-{start_index + 1} 开始")
+        log(f"Forcing from step-{start_index + 1}")
     elif force_start:
         start_index, skipped = 0, []
         clear_checkpoint(project_name)
-        log("强制重跑，清除 checkpoint")
+        log("Force restart, clearing checkpoint")
     else:
         start_index, skipped = find_resume_point(project_name, steps)
         for num, t, s in skipped:
@@ -390,11 +390,11 @@ def run_workflow(project_name, workflow, force_start=False, start_step=None):
 
     if start_index >= total:
         s = main_bus.status(project_name)
-        log_ok(f"工作流已完成！Bus 统计: {s['tasks_completed']}/{total} 步")
+        log_ok(f"Workflow complete! Bus: {s['tasks_completed']}/{total} steps")
         clear_checkpoint(project_name)
         return True
 
-    log(f"断点续跑 → 从 Step-{start_index + 1} 开始（共 {total} 步）")
+    log(f"Resume → Step-{start_index + 1} of {total}")
 
     success = True
     for i in range(start_index, total):
@@ -417,8 +417,8 @@ def run_workflow(project_name, workflow, force_start=False, start_step=None):
         s = main_bus.status(project_name)
         log("")
         log("=" * 50)
-        log_ok(f"[{project_name}] ✅ 全流程完成！{total}/{total} 步")
-        log(f"  Bus: {s['total_events']} 事件 | Agent: {', '.join(s['agents_involved'])}")
+        log_ok(f"[{project_name}] ✅ Pipeline complete! {total}/{total} steps")
+        log(f"  Bus: {s['total_events']} events | Agents: {', '.join(s['agents_involved'])}")
         log("=" * 50)
     else:
         save_checkpoint(
@@ -428,6 +428,6 @@ def run_workflow(project_name, workflow, force_start=False, start_step=None):
             "interrupted",
         )
         s = main_bus.status(project_name)
-        log_err(f"流程中断于 Step-{start_index + 1}，checkpoint 已保存")
+        log_err(f"Pipeline interrupted at Step-{start_index + 1}, checkpoint saved")
 
     return success

@@ -1,4 +1,5 @@
-"""Glink Daemon — 日志 + Reporter 初始化"""
+# SPDX-License-Identifier: MIT
+"""Glink Daemon — Logging + Reporter initialization"""
 
 import os
 import sys
@@ -66,11 +67,11 @@ def send_alert(title, message):
     from reporter import C_ERR, C_WARN
 
     reporter = get_reporter()
-    sev = C_ERR if "失败" in title or "error" in title.lower() else C_WARN
+    sev = C_ERR if "error" in title.lower() or "fail" in title.lower() else C_WARN
     return reporter.alert(title, message, severity=sev)
 
 
-# ── 颜色常量（reporter 引用） ──────────────────────────
+# ── Color constants (referenced by reporter) ─────────────────
 C_OK = "green"
 C_WARN = "yellow"
 C_ERR = "red"

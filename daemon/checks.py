@@ -1,4 +1,5 @@
-"""Glink Daemon — 自动恢复 + pidfile 管理"""
+# SPDX-License-Identifier: MIT
+"""Glink Daemon — Auto-recovery + pidfile management"""
 
 import json
 import os
@@ -34,7 +35,7 @@ def write_pidfile() -> None:
         if old_pid.isdigit():
             try:
                 os.kill(int(old_pid), 0)
-                log_warn(f"已有实例运行 (pid={old_pid})，退出")
+                log_warn(f"Another instance running (pid={old_pid}), exiting")
                 sys.exit(0)
             except OSError:
                 pass
@@ -71,7 +72,7 @@ def cleanup_pidfile() -> None:
 
 
 def self_restart(project: str, force: bool = False) -> None:
-    log_warn("⚠ 自动恢复：准备重启自身...")
+    log_warn("⚠ Auto-recovery: preparing restart...")
 
     resume_step = None
     if not force:
@@ -84,15 +85,15 @@ def self_restart(project: str, force: bool = False) -> None:
             if si >= 0:
                 resume_step = si + 1
                 ck_name = ck.get("title", f"step_{si}")
-                log(f"   上次完成: step-{si} ({ck_name})，从 step-{resume_step} 续跑")
+                log(f"   Last completed: step-{si} ({ck_name}), resuming from step-{resume_step}")
             else:
-                log("   无有效 checkpoint，从头开始")
+                log("   No valid checkpoint, starting from scratch")
         else:
-            log("   无 checkpoint 文件，从头开始")
+            log("   No checkpoint file, starting from scratch")
 
     send_alert(
-        "Daemon 自动恢复",
-        f"**项目**: {project}\n**force**: {force}\n**恢复步**: {'step-' + str(resume_step) if resume_step is not None else '从头'}\n**pid**: {os.getpid()}\n**脚本**: {DAEMON_SCRIPT}",
+        "Daemon Auto-Recovery",
+        f"**Project**: {project}\n**force**: {force}\n**Resume at**: {'step-' + str(resume_step) if resume_step is not None else 'scratch'}\n**pid**: {os.getpid()}\n**Script**: {DAEMON_SCRIPT}",
     )
 
     cmd = [sys.executable, DAEMON_SCRIPT]
@@ -102,7 +103,7 @@ def self_restart(project: str, force: bool = False) -> None:
         cmd.append(f"--step={resume_step}")
     if project:
         cmd.append(project)
-    log(f"   重启命令: {' '.join(cmd)}")
+    log(f"   Restart command: {' '.join(cmd)}")
     try:
         subprocess.Popen(
             cmd,
@@ -111,9 +112,9 @@ def self_restart(project: str, force: bool = False) -> None:
             start_new_session=True,
         )
     except Exception as exc:
-        log_err(f"新进程启动失败: {exc}")
-        log("本进程保持运行，请手动检查 DAEMON_SCRIPT 路径")
+        log_err(f"New process failed to start: {exc}")
+        log("Keeping current process running, check DAEMON_SCRIPT path manually")
         return
-    log_ok("已启动新进程，当前进程即将退出")
+    log_ok("New process started, current process will exit")
     cleanup_pidfile()
     sys.exit(0)

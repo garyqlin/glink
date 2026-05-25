@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Patch step5.html → step6.html: 计分逻辑 + 6种成就徽章 + 最高分记录 + 分数跳数动画"""
 
-import re
 
-with open('/Users/gary/opprime/glink/projects/sandbox-builder/sandbox-builder-step5.html', 'r') as f:
+with open('/Users/gary/opprime/glink/projects/sandbox-builder/sandbox-builder-step5.html') as f:
     html = f.read()
 
 # ===================================================================

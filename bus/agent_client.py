@@ -1,16 +1,14 @@
-#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """
-agent_client — Glink 共享的 Agent 通讯与工作流加载模块
+agent_client — Glink shared Agent communication & workflow loading module
 
-由 glink.py（一次性调度引擎）和 glink-daemon.py（带断点续跑的守护进程）共享。
+Shared by: glink.py (one-shot) and glink-daemon.py (checkpoint-resume daemon).
 
-导出：
-- AGENT_PORTS:  Agent 名称 → HTTP 端口的统一映射
-- call_agent(): HTTP 调用 Agent 的 /ask 接口
-- load_workflow(): 从 workflows/ 或 bus/projects/ 加载 yaml 工作流
+Exports:
+  - AGENT_PORTS:  Agent name → HTTP port mapping
+  - call_agent(): HTTP call to agent's /ask endpoint
+  - load_workflow(): Load YAML workflow from workflows/ or bus/projects/
 """
-
-from __future__ import annotations
 
 import json
 import os
@@ -18,113 +16,151 @@ import re
 import sys
 import urllib.error
 import urllib.request
-from typing import Any
+import time
 
-import yaml
-
-# ── Agent 端口映射（唯一真源）────────────────────────────
-# 同一端口可有多个别名（如 标准版/扎古、代码臂/Forge/forge）
-AGENT_PORTS: dict[str, int] = {
-    "标准版": 8420,
-    "扎古": 8420,
-    "重锤": 8431,
-    "绘墨": 8432,
-    "大黄蜂": 8434,
-    "Laser": 8435,
-    "代码臂": 8436,
-    "Forge": 8436,
-    "forge": 8436,
+# ── Agent port mapping (single source of truth) ────────────
+# One port can have multiple aliases
+AGENT_PORTS = {
+    "agent-1": 8420,
+    "agent-2": 8431,
+    "agent-3": 8432,
+    "agent-4": 8434,
+    "agent-5": 8435,
+    "agent-6": 8436,
 }
 
-DEFAULT_AGENT_PORT = 8420
-DEFAULT_TIMEOUT = 600
-
-# ── 项目名白名单（防 path traversal）────────────────────
-_PROJECT_NAME_RE = re.compile(r"[^\w\-]")
+# ── Project name sanitizer (prevents path traversal) ────
+_PROJECT_RE = re.compile(r"^[\w\-]+$")
 
 
-def _sanitize_project_name(project_name: str) -> str:
-    """过滤项目名，仅保留字母/数字/下划线/连字符"""
-    return _PROJECT_NAME_RE.sub("", project_name or "")
+def _sanitize_project_name(name: str) -> str:
+    """Filter project name — only alphanumeric, underscore, hyphen allowed."""
+    safe = _PROJECT_RE.sub("", name)
+    if safe != name:
+        safe = re.sub(r"[^\w\-]", "", name)
+    return safe.strip().lower() or "unnamed"
 
 
-# ── HTTP 调用 Agent ─────────────────────────────────────
+# ── HTTP call to agent ─────────────────────────────────────
+
+
 def call_agent(
     agent: str,
     task: str,
     port: int | None = None,
-    timeout: int = DEFAULT_TIMEOUT,
+    timeout: int = 600,
     parse_reply: bool = True,
-) -> dict[str, Any]:
-    """HTTP 调用 agent 的 /ask 接口。
+) -> dict:
+    """Call an agent's /ask endpoint via HTTP.
 
     Args:
-        agent:        Agent 名称（如 "重锤"、"Forge"）
-        task:         发送给 Agent 的任务描述
-        port:         显式端口；不传则查 AGENT_PORTS
-        timeout:      请求超时秒数
-        parse_reply:  True=尝试解析 JSON 取 reply 字段；False=直接返回原始响应
+        agent:        Agent name (e.g. "agent-1", "Forge")
+        task:         Task description for the agent
+        port:         Explicit port; falls back to AGENT_PORTS lookup
+        timeout:      Request timeout in seconds
+        parse_reply:  If True, try to parse JSON and extract 'reply' field.
+                      If False, return raw response text.
 
     Returns:
-        {"status": "ok",     "output": "<reply 或原始响应前500字>"}
-        {"status": "failed", "error":  "<错误描述>"}
+        {"status": "ok",     "output": "<reply or first 500 chars>"}
+        {"status": "failed", "error":  "<description>"}
     """
-    if port is None:
-        port = AGENT_PORTS.get(agent, DEFAULT_AGENT_PORT)
-
-    url = f"http://127.0.0.1:{port}/ask"
-    payload = json.dumps({"message": task, "session": True}).encode()
-    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
-
+    p = port or AGENT_PORTS.get(agent, 8420)
+    url = f"http://127.0.0.1:{p}/ask"
+    payload = json.dumps({"message": task}).encode()
+    start = time.time()
     try:
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             body = resp.read().decode()
+            dur = round(time.time() - start, 1)
             if parse_reply:
                 try:
-                    output = json.loads(body).get("reply", body[:500])
+                    data = json.loads(body)
+                    reply = data.get(
+                        "reply", data.get("response", data.get("output", body[:500]))
+                    )
+                    return {"status": "ok", "output": reply[:2000], "duration": dur}
                 except json.JSONDecodeError:
-                    output = body[:500]
-            else:
-                output = body[:500]
-            return {"status": "ok", "output": output}
+                    return {"status": "ok", "output": body[:2000], "duration": dur}
+            return {"status": "ok", "output": body[:2000], "duration": dur}
     except urllib.error.HTTPError as e:
-        body = e.read().decode()[:200]
-        return {"status": "failed", "error": f"HTTP {e.code}: {body}"}
+        dur = round(time.time() - start, 1)
+        return {
+            "status": "failed",
+            "error": f"HTTP {e.code}: {e.reason}",
+            "duration": dur,
+        }
+    except urllib.error.URLError as e:
+        dur = round(time.time() - start, 1)
+        return {
+            "status": "failed",
+            "error": f"Connection refused: {agent}(:{p})",
+            "duration": dur,
+        }
     except Exception as e:
-        return {"status": "failed", "error": str(e)}
+        dur = round(time.time() - start, 1)
+        return {"status": "failed", "error": str(e), "duration": dur}
 
 
-# ── 工作流加载 ───────────────────────────────────────────
-def load_workflow(project_name: str, base_dir: str | None = None) -> dict[str, Any]:
-    """加载工作流 YAML，先查 workflows/，再查 bus/projects/。
+# ── Workflow loading ───────────────────────────────────────
+
+
+def load_workflow(project_name: str, base_dir: str | None = None) -> dict:
+    """Load a workflow YAML. Searches workflows/ first, then bus/projects/.
 
     Args:
-        project_name: 项目名（会被白名单过滤）
-        base_dir:     Glink 根目录；不传则用本文件所在目录的父级
+        project_name: Project name (sanitized by _sanitize_project_name)
+        base_dir:     Glink root directory; defaults to parent of this file
 
     Returns:
-        解析后的工作流字典
+        Parsed workflow dict
 
     Raises:
-        SystemExit(1): 找不到工作流文件
+        SystemExit(1): Workflow file not found
     """
     if base_dir is None:
-        # 本文件位于 <glink>/bus/agent_client.py，父级 = glink 根
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-    workflows_dir = os.path.join(base_dir, "workflows")
-    bus_projects_dir = os.path.join(base_dir, "bus", "projects")
-
     safe_name = _sanitize_project_name(project_name)
-    candidates = [
-        os.path.join(workflows_dir, f"{safe_name}.yaml"),
-        os.path.join(bus_projects_dir, f"{safe_name}.yaml"),
-    ]
 
-    for path in candidates:
-        if os.path.exists(path):
-            with open(path, encoding="utf-8") as f:
+    # Search: workflows/<name>.yaml, workflows/<name>.yml, bus/projects/<name>.yaml
+    search_paths = []
+    base_wf = os.path.join(base_dir, "workflows")
+    for ext in (".yaml", ".yml"):
+        search_paths.append(os.path.join(base_wf, f"{safe_name}{ext}"))
+        search_paths.append(os.path.join(base_wf, f"{project_name}{ext}"))
+    bus_dir = os.path.join(base_dir, "bus", "projects")
+    search_paths.append(os.path.join(bus_dir, f"{safe_name}.yaml"))
+
+    for p in search_paths:
+        if os.path.exists(p):
+            try:
+                import yaml
+            except ImportError:
+                import subprocess
+
+                subprocess.check_call(
+                    [
+                        sys.executable,
+                        "-m",
+                        "pip",
+                        "install",
+                        "pyyaml",
+                        "-q",
+                        "--quiet",
+                        "--quiet",
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                import yaml  # noqa: F811
+            with open(p) as f:
                 return yaml.safe_load(f)
 
-    print(f"❌ 找不到工作流: {safe_name}", file=sys.stderr)
+    print(f"❌ Workflow not found: {safe_name}", file=sys.stderr)
     sys.exit(1)

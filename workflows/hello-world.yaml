@@ -1,0 +1,47 @@
+name: hello-world
+version: 1.0.0
+description: "Quick-start workflow — demonstrates Glink multi-agent orchestration"
+
+# Global context injected into every step's task prompt
+global_context: |
+  You are participating in a Glink workflow — a multi-agent orchestration pipeline.
+  Each step builds upon or transforms the output of previous steps.
+  Keep outputs self-contained and clean.
+
+steps:
+  - id: step-1
+    executor: agent-1
+    title: "Greeting generation"
+    description: "Generate a welcome message and demo artifact"
+    output_file: projects/demo/step1-output.txt
+    task: |
+      Create a greeting message introducing the Glink workflow engine.
+      Include: what Glink is (workflow orchestration for AI agents),
+      its key features (multi-step pipelines, checkpoint recovery, event bus),
+      and a brief "Hello from Glink!" message.
+      Write output to the specified output_file path.
+
+  - id: step-2
+    executor: agent-2
+    title: "Annotate & enhance"
+    description: "Enhance the step-1 output with additional detail"
+    output_file: projects/demo/step2-output.md
+    input_file: projects/demo/step1-output.txt
+    task: |
+      Read step-1's output from input_file.
+      Enhance it by adding:
+      - A short code example showing how to define a Glink workflow
+      - A comparison table: Glink vs other orchestration approaches
+      Keep it friendly and accessible. Output Markdown format.
+
+  - id: step-3
+    executor: agent-3
+    title: "Test & validate"
+    description: "Verify completeness of generated documentation"
+    output_file: projects/demo/VERIFIED.md
+    input_file: projects/demo/step2-output.md
+    task: |
+      Read the enhanced output from input_file.
+      Verify: contains "Glink" keyword, has code example, has comparison.
+      If complete, append a verification note and finalize.
+      Output: the final VERIFIED.md with a ✅ verification seal.

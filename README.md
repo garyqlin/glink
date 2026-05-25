@@ -1,8 +1,10 @@
 # Glink
 
-> **Multi-Agent. One Bus. Zero Friction.**
+> **Multi-Agent Workflow Orchestration. One Bus. Zero Friction.**
 
-Glink is a lightweight orchestration engine that turns your AI agents into a **collaborative assembly line**. Define a workflow in YAML, and Glink routes each step to the right agent — passing context, handling failures, and logging every heartbeat onto a shared JSONL blackboard. No databases, no message queues, no external dependencies.
+Glink is a lightweight orchestration engine that turns your AI agents into a **collaborative assembly line**. Define a workflow in YAML, and Glink routes each step to the right agent — passing context, handling failures, and logging every heartbeat onto a shared event bus.
+
+No database. No message queue. No external dependencies.
 
 ---
 
@@ -10,20 +12,20 @@ Glink is a lightweight orchestration engine that turns your AI agents into a **c
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                     Glink Engine                          │
+│                     Glink Daemon                          │
 │                                                           │
-│   ┌────────┐  ┌────────┐  ┌──────────┐  ┌──────┐  ┌──────┐│
-│   │  Hammer │  │  Ink   │  │Bumblebee │  │Laser │  │Forge ││
-│   │ :8431   │  │ :8432  │  │  :8434   │  │:8435 │  │:8436 ││
-│   └───┬─────┘  └───┬────┘  └────┬──────┘  └──┬───┘  └──┬───┘│
-│       │            │            │            │          │    │
-│       └────────────┴────────────┴────────────┴──────────┘    │
-│                              │                               │
-│                     ┌────────▼────────┐                      │
-│                     │    Main Bus      │                      │
-│                     │ JSONL Blackboard │                      │
-│                     └─────────────────┘                      │
-│         Append-only timeline — every agent reads & writes     │
+│  ┌─────────────────────────────────────────────────────┐  │
+│  │                    Main Bus                          │  │
+│  │              Append-only JSONL Timeline              │  │
+│  └──────┬──────────┬──────────┬──────────┬─────────────┘  │
+│         │          │          │          │                │
+│    ┌────▼───┐ ┌───▼────┐ ┌───▼────┐ ┌──▼──────┐         │
+│    │Agent-1 │ │Agent-2 │ │Agent-3 │ │...      │         │
+│    │:8420   │ │:8431   │ │:8432   │ │         │         │
+│    └────────┘ └────────┘ └────────┘ └─────────┘         │
+│         │          │          │          │                │
+│         └──────────┴──────────┴──────────┘                │
+│                    Your AI Fleet                          │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -32,23 +34,28 @@ Glink is a lightweight orchestration engine that turns your AI agents into a **c
 ## Quick Start
 
 ```bash
-# Clone & go
-cd glink
+# Define your agents in main.py or daemon/core.py
+# Default port mapping (customize freely):
+#   agent-1 :8420 (generalist)
+#   agent-2 :8431 (backend)
+#   agent-3 :8432 (frontend/UI)
+#   agent-4 :8434 (data)
+#   agent-5 :8435 (testing)
 
-# Run a workflow (resumes from last checkpoint automatically)
-python3 glink-daemon.py sandbox-builder
+# Run a workflow (auto-resumes from last checkpoint)
+python3 glink-daemon.py my-workflow
 
 # Force restart from step 1
-python3 glink-daemon.py sandbox-builder --force
+python3 glink-daemon.py my-workflow --force
 
 # Jump to a specific step
-python3 glink-daemon.py sandbox-builder --step 4
+python3 glink-daemon.py my-workflow --step 4
 
-# Serve-only mode (API without running workflow)
+# Serve-only mode (API daemon without running workflow)
 python3 glink-daemon.py --serve
 
-# Dashboard
-open http://127.0.0.1:8426
+# Open dashboard
+open http://127.0.0.1:8426/commander.html
 ```
 
 ---
@@ -60,84 +67,152 @@ open http://127.0.0.1:8426
 | **YAML Workflows** | Define steps, agents, dependencies, and fallbacks in one file |
 | **Main Bus** | JSONL blackboard — append-only, agent-agnostic, replayable |
 | **Smart Routing** | Primary agent down? Auto-fallback to the next in line |
-| **Checkpoint Resume** | Crash mid-workflow? Restart picks up exactly where it left off |
+| **Checkpoint Resume** | Crash mid-workflow? Restart picks up where it left off |
 | **Dependency Graph** | Steps can `depends_on` each other; Glink handles ordering |
 | **Retry Loop** | Auto-retry failed steps (configurable, default 2×) |
 | **HTTP API + SSE** | Live status, agent health, and event stream on `:8426` |
-| **Healthcheck Cron** | Self-healing — daemon restarts on crash, alerts via Feishu |
-| **Zero Deps** | One Python file + one JSONL file. No pip install needed |
+| **Self-Healing** | Daemon auto-restarts on crash, PID-based watchdog |
+| **Webhook Alerts** | Push notifications to any HTTP endpoint |
+| **Zero External Deps** | Pure Python 3.10+, standard library. No pip install. |
 
 ---
 
-## Workflow Example
+## Define a Workflow
 
 ```yaml
-name: sandbox-builder
-version: 0.2.0
+name: my-pipeline
+version: 1.0.0
+description: "A simple 3-step demo"
 
 global_context: |
-  Three.js r160 + Cannon-es. Output: single HTML file.
+  You are part of a multi-agent orchestration pipeline.
+  Build upon the output of previous steps.
 
 steps:
   - id: step-1
-    executor: Hammer
-    title: Scene setup
-    description: Three.js scene + camera + lights + render loop
-    output_file: projects/sandbox-builder/scene.html
+    executor: agent-1
+    title: "Generate content"
+    output_file: projects/demo/step1.txt
+    task: |
+      Create a summary of what makes a good multi-agent workflow.
 
   - id: step-2
-    executor: Hammer
-    title: Block placement
-    description: Raycasting + grid snap + 6 materials
-    input_file: projects/sandbox-builder/scene.html
-    output_file: projects/sandbox-builder/blocks.html
+    executor: agent-2
+    title: "Enhance"
+    input_file: projects/demo/step1.txt
+    output_file: projects/demo/step2.md
+    task: |
+      Read and enhance the step-1 output. Add code examples.
 
-  - id: step-5
-    executor: Ink
-    title: Glassmorphism UI
-    description: Toolbar + score panel with backdrop-filter
-    fallback_agents: [Hammer, Default]
-    input_file: projects/sandbox-builder/blocks.html
-    output_file: projects/sandbox-builder/ui.html
+  - id: step-3
+    executor: agent-3
+    title: "Verify"
+    input_file: projects/demo/step2.md
+    output_file: projects/demo/VERIFIED.md
+    task: |
+      Verify the enhanced document is complete.
+      Append a verification seal if all checks pass.
 ```
-
----
-
-## Agent Roster
-
-| Agent | Port | Specialty |
-|:------|:----:|:----------|
-| **Default / Zaku** | 8420 | Generalist, fallback for everything |
-| **Hammer** | 8431 | Backend, databases, engineering code |
-| **Ink** | 8432 | Frontend UI, visual design, CSS |
-| **Bumblebee** | 8434 | Data, search, persistence |
-| **Laser** | 8435 | Testing, validation, documentation |
-| **Forge** | 8436 | Code review, quality gate, code artistry |
 
 ---
 
 ## API Reference
 
+All endpoints served on the configured port (`:8426` by default).
+
 | Method | Endpoint | Description |
 |:-------|:---------|:------------|
-| `GET` | `/health` | Liveness check → `{"status":"ok"}` |
+| `GET` | `/health` | Liveness check |
 | `GET` | `/status` | Full project status + step-by-step progress |
-| `GET` | `/status/agents` | Which agents are online right now |
-| `GET` | `/status/events?n=20` | Last N Bus events |
+| `GET` | `/status/agents` | Which agents are online |
+| `GET` | `/status/events?n=20` | Last N bus events |
+| `GET` | `/intel/step` | Detailed intelligence per step stage |
+| `GET` | `/intel/agents` | Agent-specific metrics |
+| `GET` | `/intel/timeline` | Step timeline visualization data |
+| `GET` | `/events/stream` | SSE real-time event stream |
 | `POST` | `/restart` | Resume from last checkpoint |
 | `POST` | `/restart?force` | Force restart from step 1 |
-| `POST` | `/restart?step=N` | Jump to step N |
+| `POST` | `/restart?step=N` | Jump to specific step |
 
 ---
 
-## Real-World Result
+## Configuration
 
-**sandbox-builder** — 10 steps × 5 agents → 97 KB / 2,751 lines of playable HTML.
+See `glink-config.yaml`:
 
-Three.js sandbox game with physics, procedural textures, glassmorphism UI, save/load, scoring, and achievements — built entirely by agent collaboration, no human code touched.
+```yaml
+project:
+  default: hello-world
+
+scheduling:
+  max_retries: 2
+  poll_interval: 3
+  poll_max_wait: 180
+  max_concurrent_steps: 1
+
+reporting:
+  channels:
+    - type: console
+      label: "Glink"
+    # - type: webhook
+    #   url: "https://hooks.example.com/..."
+    #   label: "Slack"
+
+server:
+  host: "127.0.0.1"
+  port: 8426
+
+security:
+  startup_timeout: 10
+```
+
+Environment variables:
+- `GLINK_DEFAULT_PROJECT` — override default project name
+- `GLINK_PORT` — override API server port
+- `GLINK_REPORTER` — set to `webhook`, `console`, or `silent`
+- `GLINK_ALERT_WEBHOOK` — webhook URL for alerts
+
+---
+
+## Real-World Usage
+
+Glink was used to orchestrate a **10-step game development pipeline** across 5 agents:
+
+- Step 1-4: 3D scene, physics, textures, UI
+- Step 5-6: Game systems (save/load, scoring)
+- Step 7-8: Quality verification
+- Result: Single playable HTML file, 97 KB / 2,751 lines
+
+All built by agent collaboration — zero lines of human-written code.
+
+---
+
+## Project Structure
+
+```
+glink/
+├── glink-daemon.py         # CLI entry point
+├── glink-config.yaml        # Configuration
+├── daemon/
+│   ├── core.py              # Workflow orchestration engine
+│   ├── api.py               # HTTP API server (17 endpoints)
+│   ├── checks.py            # PID management & auto-recovery
+│   ├── config.py            # Config loader
+│   └── log.py               # Reporter initialization
+├── bus/
+│   ├── main_bus.py          # JSONL event bus
+│   └── agent_client.py      # Agent HTTP client
+├── reporter/
+│   └── reporter.py          # Notification session (webhook/console)
+├── dashboard/
+│   ├── commander.html       # C2 dashboard (realtime)
+│   └── index.html           # Legacy dashboard
+├── workflows/               # Your YAML workflow definitions
+└── projects/                # Step outputs by project
+```
 
 ---
 
 ## License
 
-MIT © 2026 Opprime
+MIT — free for any use, open or commercial.

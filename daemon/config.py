@@ -1,4 +1,5 @@
-"""Glink Daemon — 配置加载（从 glink-config.yaml / 环境变量 / 默认值）"""
+# SPDX-License-Identifier: MIT
+"""Glink Daemon — Config loader (glink-config.yaml / env vars / defaults)"""
 
 import os
 
@@ -6,7 +7,7 @@ _CONFIG_INSTANCE: dict | None = None
 
 
 def _load_yaml() -> dict:
-    """从 glink-config.yaml 加载配置，不存在则返回空 dict"""
+    """Load config from glink-config.yaml, return empty dict if not found"""
     paths = [
         os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "glink-config.yaml"),
         "glink-config.yaml",
@@ -24,14 +25,14 @@ def _load_yaml() -> dict:
 
 
 def load_config() -> dict:
-    """加载完整配置（含环境变量覆盖）"""
+    """Load full config (with env var overrides)"""
     global _CONFIG_INSTANCE
     if _CONFIG_INSTANCE is not None:
         return _CONFIG_INSTANCE
 
     cfg = _load_yaml()
 
-    # 环境变量覆盖
+    # Env var overrides
     env_overrides = {
         ("project", "default"): os.environ.get("GLINK_DEFAULT_PROJECT"),
         ("server", "port"): (int(os.environ["GLINK_PORT"]) if "GLINK_PORT" in os.environ else None),
@@ -48,20 +49,20 @@ def load_config() -> dict:
             d = d.setdefault(k, {})
         d[keys[-1]] = env_val
 
-    # 飞书 webhook 环境变量
+    # Webhook env var auto-enrichment
     webhook = os.environ.get("GLINK_ALERT_WEBHOOK", "")
     if webhook:
         channels = cfg.setdefault("reporting", {}).setdefault("channels", [])
-        has_feishu = any(ch.get("type") == "feishu" for ch in channels)
-        if not has_feishu:
-            channels.append({"type": "feishu", "webhook": webhook, "label": "Glink"})
+        has_webhook = any(ch.get("type") in ("webhook", "feishu") for ch in channels)
+        if not has_webhook:
+            channels.append({"type": "webhook", "url": webhook, "label": "Glink"})
 
     _CONFIG_INSTANCE = cfg
     return cfg
 
 
 def get_config(key: str, default=None):
-    """嵌套路径获取配置值，如 get_config('scheduling.max_retries', 2)"""
+    """Get config value by nested path, e.g. get_config('scheduling.max_retries', 2)"""
     cfg = load_config()
     parts = key.split(".")
     d = cfg
