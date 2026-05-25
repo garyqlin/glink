@@ -1,0 +1,34 @@
+[project]
+name = "glink-engine"
+version = "0.3.0"
+description = "Multi-Agent Workflow Orchestration Engine. One Bus. Zero Friction."
+authors = [{ name = "Gary Lin" }]
+license = { text = "MIT" }
+readme = "README.md"
+requires-python = ">=3.11"
+keywords = ["agent", "workflow", "orchestration", "ai", "automation", "pipeline"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
+ignore = ["E501", "SIM115"]
+
+[tool.ruff.lint.per-file-ignores]
+# sys.path.insert + relative import 的架构性 E402，设计上不可避免
+"bus/agent_client.py" = ["E402"]
+"bus/main_bus.py" = ["E402"]
+"daemon/checks.py" = ["E402"]
+"daemon/core.py" = ["E402"]
+"daemon/api.py" = ["E402"]
+"glink-daemon.py" = ["E402"]
+"glink.py" = ["E402"]
+# build-step6.py 是自动生成的代码补丁文件，含 JS 代码段，忽略风格规则
+"projects/sandbox-builder/build-step6.py" = ["W291", "W293", "N816"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
