@@ -15,6 +15,8 @@ sys.path.insert(0, os.path.join(BASE_DIR, "bus"))
 
 import yaml
 
+# 注册 Bus 告警处理器（write 失败时通过 Reporter 通知）
+from bus.main_bus import _set_alert_handler
 from daemon import (
     cleanup_pidfile,
     ensure_pid,
@@ -27,7 +29,10 @@ from daemon import (
     run_workflow,
     start_api_server,
 )
+from daemon import send_alert as _daemon_alert
 from daemon.config import get_default_project
+
+_set_alert_handler(_daemon_alert)
 
 WORKFLOWS_DIR = os.path.join(BASE_DIR, "workflows")
 _BOOT_TIMESTAMP = os.path.join(BASE_DIR, ".glink-boot.ts")

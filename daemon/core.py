@@ -48,7 +48,6 @@ def _bus_write(project_name: str, event_type: str, agent: str, data, stage: str 
 from agent_client import AGENT_PORTS
 from agent_client import call_agent as _call_agent
 from agent_client import load_workflow as _load_workflow
-
 from bus import sanitize_project_name as _sanitize
 
 from .config import get_max_retries, get_poll_interval, get_poll_max_wait

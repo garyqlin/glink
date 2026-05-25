@@ -22,6 +22,15 @@ from datetime import datetime
 
 from . import sanitize_project_name
 
+# Reporter 延迟导入以避免循环依赖；仅在 write 失败时用于告警
+_send_alert = None
+
+
+def _set_alert_handler(handler):
+    global _send_alert
+    _send_alert = handler
+
+
 BUS_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # 兼容别名（从 bus/__init__.py 导入）
@@ -55,8 +64,11 @@ def write(project_name: str, event_type: str, agent: str, data, stage: str = "")
             finally:
                 fcntl.flock(f.fileno(), fcntl.LOCK_UN)
     except OSError as e:
-        # 写入失败不抛出，记录到 stderr，避免拖垮调用方
-        sys.stderr.write(f"[main_bus.write] IOError on {path}: {e}\n")
+        # 写入失败不抛出，通过 Reporter 告警（有则发，无则静默）
+        msg = f"[main_bus.write] IOError on {path}: {e}"
+        sys.stderr.write(msg + "\n")
+        if _send_alert is not None:
+            _send_alert("IOError", msg, severity="error")
         return None
     return entry
 
