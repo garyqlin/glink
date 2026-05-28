@@ -304,7 +304,7 @@ if __name__ == "__main__":
     elif "--list" in sys.argv:
         r = ConsoleReporter("Glink 测试")
         r.push(
-            "Available Reporter implementations:\n- ConsoleReporter (default)\n- WebhookReporter\n- SilentReporter\n- MultiReporter"}]}
+            "Available Reporter implementations:\n- ConsoleReporter (default)\n- WebhookReporter\n- SilentReporter\n- MultiReporter")
         )
     else:
         r = ConsoleReporter()
