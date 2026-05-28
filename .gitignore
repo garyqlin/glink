@@ -10,3 +10,11 @@ __pycache__/
 forge-audit-*.md
 forge-arbitration.md
 checkpoints/
+
+# Private projects & data
+projects/
+bus/projects/
+workflows/
+
+# Audit
+forge-audit-*.md

@@ -25,7 +25,7 @@ import yaml
 # 同一端口可有多个别名（如 标准版/扎古、代码臂/Forge/forge）
 AGENT_PORTS: dict[str, int] = {
     "标准版": 8420,
-    "扎古": 8420,
+    # "扎古": 8420,  # internal alias
     "重锤": 8431,
     "绘墨": 8432,
     "大黄蜂": 8434,

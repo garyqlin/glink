@@ -10,14 +10,14 @@
 
 **Glink** 是一个**轻量级多 Agent 协作编排引擎**，专为 AI 战甲工作流设计。
 
-传统上，多个 AI Agent 各自独立运行，信息无法共享，成果无法接力。Glink 通过 **Main Bus 共享黑板架构** 打破这个孤岛——让不同的战甲（重锤写代码、绘墨做 UI、大黄蜂填充数据、Laser 测试、Forge 质检）像一条流水线工人一样协同工作。
+传统上，多个 AI Agent 各自独立运行，信息无法共享，成果无法接力。Glink 通过 **Main Bus 共享黑板架构** 打破这个孤岛——让不同的战甲（Hammer写代码、Ink做 UI、Bumblebee填充数据、Laser 测试、Forge 质检）像一条流水线工人一样协同工作。
 
 ```
 ┌─────────────────────────────────────────────────────┐
 │                    Glink 引擎                         │
 │                                                      │
 │  ┌──────┐  ┌──────┐  ┌──────┐  ┌──────┐  ┌──────┐  │
-│  │重锤  │  │绘墨  │  │大黄蜂│  │Laser │  │Forge │  │
+│  │Hammer  │  │Ink  │  │Bumblebee│  │Laser │  │Forge │  │
 │  └──┬───┘  └──┬───┘  └──┬───┘  └──┬───┘  └──┬───┘  │
 │     │         │         │         │         │       │
 │     └─────────┴─────────┴─────────┴─────────┘       │
@@ -55,13 +55,13 @@ global_context: |
 
 steps:
   - id: step-1
-    executor: 重锤
+    executor: Hammer
     title: 场景初始化
     description: Three.js 场景 + 相机 + 光照 + 渲染循环
     output_file: projects/sandbox-builder/sandbox-builder-step1.html
 
   - id: step-2
-    executor: 重锤
+    executor: Hammer
     title: 方块放置系统
     description: Raycasting + 网格吸附 + 6 种材质
     input_file: projects/sandbox-builder/sandbox-builder-step1.html
@@ -81,7 +81,7 @@ projects/{project_name}.jsonl
 {
   "ts": "2026-05-24T22:45:41.123456",
   "type": "task.completed",
-  "agent": "绘墨",
+  "agent": "Ink",
   "stage": "step-6",
   "data": { "title": "开始菜单+结束画面", "output_preview": "..." }
 }
@@ -99,12 +99,12 @@ Glink 内置的 Agent 端口映射（唯一真源）：
 
 | 战甲 | 端口 | 职责 |
 |:---|:---:|:---|
-| 标准版 / 扎古 | 8420 | 通用型，默认备用 |
-| 重锤 (Hammer) | 8431 | 后端、数据库、工程代码 |
-| 绘墨 (Ink) | 8432 | 前端 UI、视觉设计、体验 |
-| 大黄蜂 (Bumblebee) | 8434 | 数据填充、搜索、执行 |
+| Standard / Zagu | 8420 | 通用型，默认备用 |
+| Hammer (Hammer) | 8431 | 后端、数据库、工程代码 |
+| Ink (Ink) | 8432 | 前端 UI、视觉设计、体验 |
+| Bumblebee (Bumblebee) | 8434 | 数据填充、搜索、执行 |
 | Laser | 8435 | 测试、验证、文档 |
-| Forge / 代码臂 | 8436 | 代码审查、质量闭环、代码艺术 |
+| Forge / CodeArm | 8436 | 代码审查、质量闭环、代码艺术 |
 
 ---
 
@@ -190,13 +190,13 @@ Glink 内置的 Agent 端口映射（唯一真源）：
 当首选 Agent 不可用时，Glink 自动按配置的 `fallback_agents` 顺序轮询：
 
 ```yaml
-- executor: 绘墨
-  fallback_agents: ["重锤", "标准版"]
+- executor: Ink
+  fallback_agents: ["Hammer", "Standard"]
 ```
 
 路由过程：
-1. 先检查绘墨端口 (8432) → 不通则跳到重锤 (8431)
-2. 不通则跳到标准版 (8420)
+1. 先检查Ink端口 (8432) → 不通则跳到Hammer (8431)
+2. 不通则跳到Standard (8420)
 3. 所有 fallback 都不通 → 步骤失败，非可选步骤阻断流水线
 
 ---
@@ -344,14 +344,14 @@ GLINK_PROJECT=myproject python3 main_bus.py latest task.completed
 
 | 步骤 | 战甲 | 功能 | 耗时 |
 |:---|:---|---:|---:|
-| 1 | 重锤 | Three.js 场景 + 相机 + 光照 | ~5min |
-| 2 | 重锤 | Raycasting 方块放置/删除 | ~5min |
-| 3 | 重锤 | Canvas 程序生成 6 种材质贴图 | ~5min |
-| 4 | 重锤 | Cannon-es 物理同步 | ~5min |
-| 5 | 绘墨 | Glassmorphism UI 工具栏 + 分数面板 | ~8min |
-| 6 | 绘墨 | 开始菜单 + 结束画面 + ESC 退出 | ~12min |
-| 7 | 大黄蜂 | localStorage 3 槽保存/读取 | ~6min |
-| 8 | 大黄蜂 | 计分系统 + 6 种成就徽章 | ~6min |
+| 1 | Hammer | Three.js 场景 + 相机 + 光照 | ~5min |
+| 2 | Hammer | Raycasting 方块放置/删除 | ~5min |
+| 3 | Hammer | Canvas 程序生成 6 种材质贴图 | ~5min |
+| 4 | Hammer | Cannon-es 物理同步 | ~5min |
+| 5 | Ink | Glassmorphism UI 工具栏 + 分数面板 | ~8min |
+| 6 | Ink | 开始菜单 + 结束画面 + ESC 退出 | ~12min |
+| 7 | Bumblebee | localStorage 3 槽保存/读取 | ~6min |
+| 8 | Bumblebee | 计分系统 + 6 种成就徽章 | ~6min |
 | 9 | Laser | 全流程黑盒测试 | ~5min |
 | 10 | Forge | 完整代码审查 + 质量报告 | ~6min |
 
@@ -443,15 +443,15 @@ python3 glink-daemon.py my-project --serve-only
 **Phase 1 — 独立步骤并行**（v1.x）
 ```yaml
 steps:
-  - executor: 重锤
+  - executor: Hammer
     title: 后端
     depends_on: []        # 无依赖 → 可并行
     parallel_group: 1     # 同一 group 的步骤同时执行
-  - executor: 绘墨
+  - executor: Ink
     title: 前端    
     depends_on: []        # 无依赖 → 可并行
     parallel_group: 1
-  - executor: 大黄蜂
+  - executor: Bumblebee
     title: 集成测试
     depends_on: [step-1, step-2]  # 等待两组完成
 ```
@@ -510,12 +510,12 @@ cd glink
 # workflows/my-project.yaml
 name: my-project
 steps:
-  - executor: 重锤
+  - executor: Hammer
     title: 第一步
     description: 做什么
     output_file: projects/my-project/result-1.html
 
-  - executor: 绘墨
+  - executor: Ink
     title: 第二步（在前序基础上增量修改）
     input_file: projects/my-project/result-1.html
     output_file: projects/my-project/result-2.html
@@ -553,6 +553,6 @@ python3 glink-daemon.py my-project
 
 > **Glink** — 让战甲一起干活。
 >
-> 项目位置：`/Users/gary/opprime/glink/`
+> 项目位置：`/home/developer/opprime
 > Daemon 端口：8426
 > Dashboard：`http://127.0.0.1:8426/status`

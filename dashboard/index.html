@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh">
 <head>
 <meta charset="UTF-8">
 <title>Glink Dashboard — v0.4</title>
@@ -65,9 +65,9 @@ body { font-family: 'SF Mono', 'Menlo', monospace; background: #0d1117; color: #
 
 <div class="main">
   <div class="left-col">
-    <!-- Progress card -->
+    <!-- 进度卡片 -->
     <div class="card" style="margin-bottom:16px">
-      <div class="card-header">📊 Progress</div>
+      <div class="card-header">📊 项目进度</div>
       <div class="card-body">
         <div class="progress-wrap">
           <div class="progress-bar-bg">
@@ -81,28 +81,28 @@ body { font-family: 'SF Mono', 'Menlo', monospace; background: #0d1117; color: #
       </div>
     </div>
 
-    <!-- Step list -->
+    <!-- Step 列表 -->
     <div class="card">
-      <div class="card-header">📋 Workflow Steps</div>
+      <div class="card-header">📋 工作流 Steps</div>
       <div class="card-body" id="stepList">Loading...</div>
     </div>
   </div>
 
   <div class="right-col">
-    <!-- Error alerts -->
+    <!-- 错误告警 -->
     <div class="error-box" id="errorBox"></div>
 
-    <!-- Agent status -->
+    <!-- 战甲状态 -->
     <div class="card">
-      <div class="card-header">🤖 Agent Status</div>
+      <div class="card-header">🤖 战甲状态</div>
       <div class="card-body">
         <div class="agent-grid" id="agentGrid">Loading...</div>
       </div>
     </div>
 
-    <!-- Live events -->
+    <!-- 实时事件 -->
     <div class="card">
-      <div class="card-header">📡 Live Events</div>
+      <div class="card-header">📡 实时事件流</div>
       <div class="card-body">
         <div class="event-list" id="eventList">Loading...</div>
       </div>
@@ -111,31 +111,31 @@ body { font-family: 'SF Mono', 'Menlo', monospace; background: #0d1117; color: #
 </div>
 
 <script>
-// ── Config ──────────────────────────────────────────────
+// ── 配置 ──────────────────────────────────────────────
 const DAEMON_HOST = 'http://127.0.0.1';
-const DAEMON_PORT = 8426;
+const DAEMON_PORT = 8426;  // Glink daemon 端口（后续可改为动态探测）
 const REFRESH_MS  = 2000;
 
-// Agent port mapping — customize for your fleet
 const AGENT_PORTS = {
-  'agent-1': 8420, 'agent-2': 8431, 'agent-3': 8432,
-  'agent-4': 8434, 'agent-5': 8435
+  '标准版': 8420, '重锤': 8431, '绘墨': 8432,
+  '大黄蜂': 8434, 'Laser': 8435,
+  'Hermes': 8440, '扎古': 8420, '橘子': 8420
 };
 
-// ── Utility functions ────────────────────────────────────
+// ── 工具函数 ──────────────────────────────────────────
 const $ = id => document.getElementById(id);
 const fmt = n => String(n).padStart(2, '0');
 
 function statusLabel(type) {
   const m = {
-    'task.started':   ['run',  '🔄 Started'],
-    'task.completed': ['ok',   '✅ Completed'],
-    'task.failed':    ['fail', '❌ Failed'],
-    'task.skipped':   ['skip', '⏭️ Skipped'],
-    'task.waiting':   ['wait', '⏳ Waiting'],
-    'project.started':['run',  '🚀 Started'],
-    'project.done':   ['ok',   '🏁 Done'],
-    'project.update': ['run',  '📝 Updated'],
+    'task.started':   ['run',  '🔄 启动'],
+    'task.completed': ['ok',   '✅ 完成'],
+    'task.failed':    ['fail', '❌ 失败'],
+    'task.skipped':   ['skip', '⏭️ 跳过'],
+    'task.waiting':   ['wait', '⏳ 等待'],
+    'project.started':['run',  '🚀 开始'],
+    'project.done':   ['ok',   '🏁 结束'],
+    'project.update': ['run',  '📝 更新'],
   };
   const [cls, label] = m[type] || ['wait', type];
   return `<span class="step-num ${cls}">${label}</span>`;
@@ -149,7 +149,7 @@ function escapeHtml(s) {
     .replace(/>/g,'&gt;');
 }
 
-// ── Fetch Bus data ───────────────────────────────────────
+// ── 拉取 Bus 数据 ────────────────────────────────────
 async function fetchJSON(url) {
   try {
     const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
@@ -157,7 +157,7 @@ async function fetchJSON(url) {
   } catch { return null; }
 }
 
-// ── Health check all agents ──────────────────────────────
+// ── 健康检查所有 agent ────────────────────────────────
 async function checkAgents() {
   const checks = Object.entries(AGENT_PORTS).map(async ([name, port]) => {
     const online = await fetchJSON(`${DAEMON_HOST}:${port}/health`) !== null;
@@ -166,7 +166,7 @@ async function checkAgents() {
   return Object.fromEntries((await Promise.all(checks)).map(a => [a.name, a]));
 }
 
-// ── Render ───────────────────────────────────────────────
+// ── 渲染 ─────────────────────────────────────────────
 function renderAgents(agents) {
   const grid = $('agentGrid');
   const uniq = {};
@@ -180,7 +180,7 @@ function renderAgents(agents) {
       <span class="agent-port">:${a.port}</span>
     </div>`).join('');
 
-  // Top-bar live dot
+  // 顶栏 live dot
   const anyOnline = Object.values(uniq).some(a => a.online);
   $('liveDot').className = 'live-dot' + (anyOnline ? '' : ' offline');
 }
@@ -188,7 +188,7 @@ function renderAgents(agents) {
 function renderSteps(status) {
   const steps = status.steps || [];
   const list = $('stepList');
-  if (!steps.length) { list.innerHTML = '<span style="color:#484f58">No steps yet</span>'; return; }
+  if (!steps.length) { list.innerHTML = '<span style="color:#484f58">暂无步骤数据</span>'; return; }
 
   list.innerHTML = steps.map(s => `
     <div class="step-item">
@@ -198,7 +198,7 @@ function renderSteps(status) {
       <span class="step-time">${escapeHtml(s.duration || '—')}</span>
     </div>`).join('');
 
-  // Progress bar
+  // 进度条
   const done = steps.filter(s => s.status_class === 'ok' || s.status_class === 'skip').length;
   const pct  = Math.round((done / steps.length) * 100);
   $('progressFill').style.width = pct + '%';
@@ -208,7 +208,7 @@ function renderSteps(status) {
 
 function renderEvents(events) {
   const list = $('eventList');
-  if (!events.length) { list.innerHTML = '<span style="color:#484f58">No events</span>'; return; }
+  if (!events.length) { list.innerHTML = '<span style="color:#484f58">暂无事件</span>'; return; }
   list.innerHTML = events.map(e => `
     <div class="event-item">
       <span class="event-ts">${escapeHtml(e.ts?.slice(11,19) || '')}</span>
@@ -224,7 +224,7 @@ function renderError(msg) {
   box.textContent = '⚠️ ' + msg;
 }
 
-// ── Main loop ─────────────────────────────────────────────
+// ── 主循环 ────────────────────────────────────────────
 let runStart = null;
 
 async function refresh() {
